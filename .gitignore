@@ -36,3 +36,19 @@ coverage/
 # Misc
 *.tsbuildinfo
 .turbo/
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# pnpm
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Keys
+*.pem
