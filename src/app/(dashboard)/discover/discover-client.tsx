@@ -27,9 +27,13 @@ function filterGrants(grants: Grant[], filters: GrantSearchFilters): Grant[] {
       }
     }
 
-    // Agency filter
-    if (filters.agency && grant.agency !== filters.agency) {
-      return false;
+    // Agency filter - use includes() because agency can be "HHS-NIH11" and filter is "HHS" or "NIH"
+    if (filters.agency) {
+      const agencyUpper = grant.agency.toUpperCase();
+      const filterAgencyUpper = filters.agency.toUpperCase();
+      if (!agencyUpper.includes(filterAgencyUpper)) {
+        return false;
+      }
     }
 
     // Status filter
