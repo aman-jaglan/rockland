@@ -3,12 +3,14 @@
  *
  * Provides intelligent matching between grants and FQHC profiles.
  * Uses a hybrid approach:
- * - Real AI API (Anthropic Claude) if API key is available
+ * - Google Gemini API if GOOGLE_API_KEY is available
  * - Rule-based fallback if no API key or API fails
  *
  * Includes caching to avoid redundant API calls for the same grant+profile pair.
  */
 
+import { generateText } from 'ai';
+import { google } from '@ai-sdk/google';
 import type { Grant, FQHCProfile, GrantMatch } from '../types';
 
 // ============================================================================
@@ -234,18 +236,19 @@ function parseAIResponse(
 }
 
 // ============================================================================
-// AI API Integration
+// AI API Integration (Google Gemini)
 // ============================================================================
 
 /**
- * Calls Claude API to calculate grant match
+ * Calls Google Gemini API to calculate grant match
+ * Uses Vercel AI SDK with gemini-3-flash-preview model
  * Returns null if API call fails
  */
-async function callClaudeAPI(
+async function callGeminiAPI(
   grant: Grant,
   profile: FQHCProfile
 ): Promise<GrantMatch | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     return null;
   }
@@ -253,32 +256,12 @@ async function callClaudeAPI(
   const prompt = buildAIMatchPrompt(grant, profile);
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-      }),
+    const result = await generateText({
+      model: google('gemini-3-flash-preview'),
+      prompt,
     });
 
-    if (!response.ok) {
-      console.error('Claude API error:', response.status, response.statusText);
-      return null;
-    }
-
-    const data = await response.json();
-    const responseText = data.content?.[0]?.text;
+    const responseText = result.text;
 
     if (!responseText) {
       return null;
@@ -286,61 +269,7 @@ async function callClaudeAPI(
 
     return parseAIResponse(responseText, grant.id, profile.id);
   } catch (error) {
-    console.error('Claude API call failed:', error);
-    return null;
-  }
-}
-
-/**
- * Calls OpenAI API to calculate grant match (fallback if Claude unavailable)
- * Returns null if API call fails
- */
-async function callOpenAIAPI(
-  grant: Grant,
-  profile: FQHCProfile
-): Promise<GrantMatch | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-
-  const prompt = buildAIMatchPrompt(grant, profile);
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        max_tokens: 1024,
-        temperature: 0.3,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error('OpenAI API error:', response.status, response.statusText);
-      return null;
-    }
-
-    const data = await response.json();
-    const responseText = data.choices?.[0]?.message?.content;
-
-    if (!responseText) {
-      return null;
-    }
-
-    return parseAIResponse(responseText, grant.id, profile.id);
-  } catch (error) {
-    console.error('OpenAI API call failed:', error);
+    console.error('Gemini API call failed:', error);
     return null;
   }
 }
@@ -492,9 +421,8 @@ export function calculateRuleBasedMatch(
  *
  * Priority:
  * 1. Return cached result if available
- * 2. Try Anthropic Claude API
- * 3. Try OpenAI API as backup
- * 4. Fall back to rule-based matching
+ * 2. Try Google Gemini API
+ * 3. Fall back to rule-based matching
  *
  * Results are cached to prevent redundant API calls.
  */
@@ -508,16 +436,9 @@ export async function calculateGrantMatch(
     return cachedMatch;
   }
 
-  // Try AI APIs in order
+  // Try Gemini API
   let match: GrantMatch | null = null;
-
-  // Try Claude first
-  match = await callClaudeAPI(grant, profile);
-
-  // Try OpenAI as backup
-  if (!match) {
-    match = await callOpenAIAPI(grant, profile);
-  }
+  match = await callGeminiAPI(grant, profile);
 
   // Fall back to rule-based if AI unavailable
   if (!match) {
@@ -546,8 +467,8 @@ export async function calculateBatchMatches(
 }
 
 /**
- * Checks if AI matching is available (API key configured)
+ * Checks if AI matching is available (Google API key configured)
  */
 export function isAIMatchingAvailable(): boolean {
-  return !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+  return !!process.env.GOOGLE_API_KEY;
 }

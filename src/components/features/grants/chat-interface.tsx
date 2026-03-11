@@ -87,7 +87,7 @@ function getMessageContent(message: ChatMessageType): string {
  *
  * Features:
  * - Sends FQHC profile and grant context with each message
- * - Streaming responses from Gemini 1.5 Flash
+ * - Streaming responses from Gemini 3 Flash Preview
  * - Auto-scroll to bottom on new messages
  * - Message history with user/AI distinction
  */

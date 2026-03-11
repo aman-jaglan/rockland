@@ -22,7 +22,7 @@ Keep responses concise and actionable. Focus on:
 Be direct and professional. The CFO has limited time.`;
 
   const result = streamText({
-    model: google('gemini-1.5-flash'),
+    model: google('gemini-3-flash-preview'),
     system: systemPrompt,
     messages,
   });

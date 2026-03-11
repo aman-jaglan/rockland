@@ -203,7 +203,7 @@ export async function GET(): Promise<NextResponse<ApiResponse<{
     data: {
       aiAvailable,
       message: aiAvailable
-        ? 'AI-powered matching is available. Matches use Claude or GPT for intelligent analysis.'
+        ? 'AI-powered matching is available. Matches use Gemini for intelligent analysis.'
         : 'AI matching unavailable. Using rule-based matching (no API key configured).',
     },
   });

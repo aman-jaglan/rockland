@@ -65,3 +65,24 @@
 - Commits:
   - `feat: add persistent grant caching with detail enrichment`
   - `fix: handle forecasted grants in detail API parsing`
+
+## [01:30] AI Integration & UX Overhaul
+- Added Vercel AI SDK with Google Gemini (gemini-1.5-flash)
+- Created synthetic FQHC profile for demo (Bay Area Community Health Center)
+- Enhanced dashboard with top matching grants display
+- Created grant detail page (/grants/[id]) with:
+  - Full grant information
+  - Match analysis (score, criteria, concerns)
+  - AI chat assistant for questions
+  - "Add to Pipeline" action
+- Redesigned pipeline with vertical view:
+  - New stages: Interested → Evaluating → Applying → Submitted → Awarded
+  - Full-width cards with complete titles
+  - Progress bar for applying stage
+  - Collapsible sections
+- Commits:
+  - `feat: add Vercel AI SDK with Google Gemini for chat assistant`
+  - `feat: add synthetic FQHC profile for demo mode`
+  - `feat: enhance dashboard with top matching grants display`
+  - `feat: add grant detail page with AI chat assistant`
+  - `feat: redesign pipeline with vertical view and new stages`
