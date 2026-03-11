@@ -1,13 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Grant } from "@/lib/types";
+import type { Grant, GrantMatch } from "@/lib/types";
 
 interface GrantCardProps {
   grant: Grant;
+  match?: GrantMatch;
   onAddToPipeline?: (grant: Grant) => void;
+  onRequestMatch?: (grant: Grant) => void;
 }
 
 /**
@@ -76,12 +79,144 @@ function truncateText(text: string, maxLength: number): string {
 }
 
 /**
+ * Get fit score color based on score value
+ * Green (8-10): Strong fit
+ * Yellow (5-7): Moderate fit
+ * Gray (1-4): Limited fit
+ */
+function getFitScoreColor(score: number): string {
+  if (score >= 8) {
+    return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-300";
+  }
+  if (score >= 5) {
+    return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border-yellow-300";
+  }
+  return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-300";
+}
+
+/**
+ * Get fit score label based on score value
+ */
+function getFitScoreLabel(score: number): string {
+  if (score >= 8) {
+    return "Strong Match";
+  }
+  if (score >= 5) {
+    return "Moderate Fit";
+  }
+  return "Limited Fit";
+}
+
+/**
+ * Fit Score Badge Component
+ * Displays the AI-calculated fit score with visual indicator
+ */
+function FitScoreBadge({ score }: { score: number }) {
+  const colorClass = getFitScoreColor(score);
+  const label = getFitScoreLabel(score);
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-semibold border ${colorClass}`}
+      title={label}
+    >
+      <span className="text-xs uppercase tracking-wide opacity-75">Fit</span>
+      <span>{score}/10</span>
+    </div>
+  );
+}
+
+/**
+ * Fit Explanation Section Component
+ * Expandable section showing detailed match explanation
+ */
+function FitExplanationSection({ match }: { match: GrantMatch }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-3">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors w-full text-left"
+        aria-expanded={isExpanded}
+      >
+        <svg
+          className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 5l7 7-7 7"
+          />
+        </svg>
+        <span className="font-medium">Why this score?</span>
+      </button>
+
+      {isExpanded && (
+        <div className="mt-2 space-y-2 text-sm">
+          {/* Fit Explanation */}
+          <p className="text-gray-700 dark:text-gray-300">{match.fitExplanation}</p>
+
+          {/* Matched Criteria */}
+          {match.matchedCriteria.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+                Matching Factors
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {match.matchedCriteria.map((criterion, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center rounded-full bg-green-50 dark:bg-green-900/30 px-2 py-0.5 text-xs text-green-700 dark:text-green-300"
+                  >
+                    {criterion}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Potential Concerns */}
+          {match.potentialConcerns.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+                Considerations
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {match.potentialConcerns.map((concern, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center rounded-full bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-300"
+                  >
+                    {concern}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Grant Card Component
  *
  * Displays a single grant opportunity with key information for quick scanning.
  * Designed for CFOs who need to review grants quickly (10-minute constraint).
+ *
+ * Features:
+ * - Core grant info (title, agency, funding, deadline)
+ * - AI-powered fit score when match data is available
+ * - Expandable explanation showing why the grant matches
+ * - Visual urgency indicators for deadlines
  */
-export function GrantCard({ grant, onAddToPipeline }: GrantCardProps) {
+export function GrantCard({ grant, match, onAddToPipeline, onRequestMatch }: GrantCardProps) {
   const isUrgent = isDeadlineUrgent(grant.deadline);
   const statusVariant = grant.status === "posted" ? "success" : "warning";
   const statusLabel = grant.status === "posted" ? "Posted" : "Forecasted";
@@ -92,19 +227,30 @@ export function GrantCard({ grant, onAddToPipeline }: GrantCardProps) {
     }
   }
 
+  function handleRequestMatch() {
+    if (onRequestMatch) {
+      onRequestMatch(grant);
+    }
+  }
+
   return (
     <Card hover className="flex flex-col h-full">
       <CardContent className="flex-1">
-        {/* Header: Agency and Status badges */}
-        <div className="flex items-center justify-between mb-3">
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium ${getAgencyColor(grant.agency)}`}
-          >
-            {grant.agency}
-          </span>
-          <Badge variant={statusVariant} size="sm">
-            {statusLabel}
-          </Badge>
+        {/* Header: Agency, Status, and Fit Score */}
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium ${getAgencyColor(grant.agency)}`}
+            >
+              {grant.agency}
+            </span>
+            <Badge variant={statusVariant} size="sm">
+              {statusLabel}
+            </Badge>
+          </div>
+
+          {/* Fit Score Badge */}
+          {match && <FitScoreBadge score={match.fitScore} />}
         </div>
 
         {/* Grant Title */}
@@ -127,16 +273,26 @@ export function GrantCard({ grant, onAddToPipeline }: GrantCardProps) {
         <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3">
           {truncateText(grant.description, 200)}
         </p>
+
+        {/* Fit Explanation Section (expandable) */}
+        {match && <FitExplanationSection match={match} />}
       </CardContent>
 
-      <CardFooter className="flex items-center justify-between gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => window.open(grant.sourceUrl, "_blank")}
-        >
-          View Details
-        </Button>
+      <CardFooter className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(grant.sourceUrl, "_blank")}
+          >
+            View Details
+          </Button>
+          {!match && onRequestMatch && (
+            <Button variant="outline" size="sm" onClick={handleRequestMatch}>
+              Check Fit
+            </Button>
+          )}
+        </div>
         <Button size="sm" onClick={handleAddToPipeline}>
           Add to Pipeline
         </Button>

@@ -15,3 +15,13 @@ export {
   clearAllCache,
   type GrantSearchParams,
 } from './grants-gov';
+
+// AI Matching API
+export {
+  calculateGrantMatch,
+  calculateBatchMatches,
+  calculateRuleBasedMatch,
+  isAIMatchingAvailable,
+  clearMatchCache,
+  clearExpiredMatchCache,
+} from './ai-matching';
