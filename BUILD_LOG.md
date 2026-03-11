@@ -55,3 +55,13 @@
 - All 6 phases completed
 - 11 atomic commits total
 - Ready for deployment to Vercel
+
+## [01:00] Post-Build: Grant Caching Enhancement
+- Implemented persistent SQLite caching for grant details
+- 4-hour search cache TTL, permanent detail cache
+- Only fetches details for NEW grants (not seen before)
+- Added "Refresh" button to bypass cache
+- Fixed: Handle forecasted grants (different API response structure)
+- Commits:
+  - `feat: add persistent grant caching with detail enrichment`
+  - `fix: handle forecasted grants in detail API parsing`
