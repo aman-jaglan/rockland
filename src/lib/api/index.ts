@@ -1,0 +1,17 @@
+/**
+ * API Client Exports
+ *
+ * Central export point for all API client functions.
+ * Import from this file rather than individual API modules.
+ */
+
+// Grants.gov API
+export {
+  searchGrants,
+  searchGrantsForFQHC,
+  getGrantDetails,
+  filterGrantsForFQHC,
+  clearExpiredCache,
+  clearAllCache,
+  type GrantSearchParams,
+} from './grants-gov';
