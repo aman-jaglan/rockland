@@ -192,16 +192,16 @@ export type UpdateFQHCProfileInput = Partial<Omit<FQHCProfile, 'id' | 'createdAt
 /**
  * Status stages for grants in the pipeline
  *
- * Reflects the CFO's workflow from discovery to award:
- * - discovered: AI found a potentially matching grant
+ * Reflects the CFO's workflow from interest to award:
+ * - interested: Team has shown interest in this grant opportunity
  * - evaluating: Team is reviewing fit and feasibility
  * - applying: Active work on the application
  * - submitted: Application sent, awaiting decision
  * - awarded: Grant received
- * - rejected: Application not selected
+ * - rejected: Application not selected (hidden, archivable)
  */
 export type PipelineStatus =
-  | 'discovered'
+  | 'interested'
   | 'evaluating'
   | 'applying'
   | 'submitted'

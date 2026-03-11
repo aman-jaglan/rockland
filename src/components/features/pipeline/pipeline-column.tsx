@@ -1,7 +1,45 @@
 "use client";
 
+import { useState } from "react";
 import { PipelineCard } from "./pipeline-card";
 import type { PipelineItemWithGrant, PipelineStatus } from "@/lib/types";
+
+// Icon components
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M19 9l-7 7-7-7"
+      />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 5l7 7-7 7"
+      />
+    </svg>
+  );
+}
 
 interface PipelineColumnProps {
   status: PipelineStatus;
@@ -12,37 +50,37 @@ interface PipelineColumnProps {
 
 const STAGE_CONFIG: Record<
   PipelineStatus,
-  { label: string; headerColor: string; borderColor: string }
+  { label: string; headerColor: string; accentColor: string }
 > = {
-  discovered: {
-    label: "Discovered",
-    headerColor: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200",
-    borderColor: "border-gray-300 dark:border-gray-600",
+  interested: {
+    label: "INTERESTED",
+    headerColor: "text-gray-700 dark:text-gray-300",
+    accentColor: "bg-gray-400",
   },
   evaluating: {
-    label: "Evaluating",
-    headerColor: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-    borderColor: "border-blue-300 dark:border-blue-700",
+    label: "EVALUATING",
+    headerColor: "text-blue-700 dark:text-blue-300",
+    accentColor: "bg-blue-500",
   },
   applying: {
-    label: "Applying",
-    headerColor: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-    borderColor: "border-yellow-300 dark:border-yellow-700",
+    label: "APPLYING",
+    headerColor: "text-yellow-700 dark:text-yellow-300",
+    accentColor: "bg-yellow-500",
   },
   submitted: {
-    label: "Submitted",
-    headerColor: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-    borderColor: "border-purple-300 dark:border-purple-700",
+    label: "SUBMITTED",
+    headerColor: "text-purple-700 dark:text-purple-300",
+    accentColor: "bg-purple-500",
   },
   awarded: {
-    label: "Awarded",
-    headerColor: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-    borderColor: "border-green-300 dark:border-green-700",
+    label: "AWARDED",
+    headerColor: "text-green-700 dark:text-green-300",
+    accentColor: "bg-green-500",
   },
   rejected: {
-    label: "Rejected",
-    headerColor: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-    borderColor: "border-red-300 dark:border-red-700",
+    label: "REJECTED",
+    headerColor: "text-red-700 dark:text-red-300",
+    accentColor: "bg-red-500",
   },
 };
 
@@ -52,41 +90,58 @@ export function PipelineColumn({
   onMoveStatus,
   updatingItemId,
 }: PipelineColumnProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const config = STAGE_CONFIG[status];
 
   return (
-    <div
-      className={`flex min-w-[280px] flex-col rounded-lg border-2 ${config.borderColor} bg-gray-50 dark:bg-gray-900`}
-    >
-      {/* Column Header */}
-      <div
-        className={`flex items-center justify-between rounded-t-md px-3 py-2 ${config.headerColor}`}
+    <div className="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/50">
+      {/* Section Header */}
+      <button
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
       >
-        <h3 className="text-sm font-semibold">{config.label}</h3>
-        <span className="rounded-full bg-white/50 px-2 py-0.5 text-xs font-medium dark:bg-black/20">
+        {/* Collapse indicator */}
+        {isCollapsed ? (
+          <ChevronRightIcon className="h-4 w-4 text-gray-400" />
+        ) : (
+          <ChevronDownIcon className="h-4 w-4 text-gray-400" />
+        )}
+
+        {/* Color accent bar */}
+        <div className={`h-4 w-1 rounded-full ${config.accentColor}`} />
+
+        {/* Stage label */}
+        <h3 className={`text-sm font-semibold tracking-wide ${config.headerColor}`}>
+          {config.label}
+        </h3>
+
+        {/* Count badge */}
+        <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400">
           {items.length}
         </span>
-      </div>
+      </button>
 
       {/* Cards Container */}
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
-        {items.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 p-4 dark:border-gray-700">
-            <p className="text-center text-sm text-gray-400 dark:text-gray-500">
-              No grants in this stage
-            </p>
-          </div>
-        ) : (
-          items.map((item) => (
-            <PipelineCard
-              key={item.id}
-              item={item}
-              onMoveStatus={onMoveStatus}
-              isUpdating={updatingItemId === item.id}
-            />
-          ))
-        )}
-      </div>
+      {!isCollapsed && (
+        <div className="space-y-3 px-4 pb-4">
+          {items.length === 0 ? (
+            <div className="rounded-lg border-2 border-dashed border-gray-200 py-6 text-center dark:border-gray-700">
+              <p className="text-sm text-gray-400 dark:text-gray-500">
+                No grants in this stage
+              </p>
+            </div>
+          ) : (
+            items.map((item) => (
+              <PipelineCard
+                key={item.id}
+                item={item}
+                onMoveStatus={onMoveStatus}
+                isUpdating={updatingItemId === item.id}
+              />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
