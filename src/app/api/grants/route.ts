@@ -3,6 +3,7 @@
  *
  * Provides endpoints for fetching grant opportunities from Grants.gov.
  * Supports filtering by keyword, agency, status, and FQHC relevance.
+ * Uses persistent SQLite caching for grant details.
  *
  * GET /api/grants
  *   Query parameters:
@@ -11,9 +12,10 @@
  *   - status: 'posted' | 'forecasted' | 'all' (default: 'all')
  *   - limit: Number of results (default: 25, max: 100)
  *   - fqhcOnly: 'true' to filter for FQHC-relevant grants (default: 'false')
+ *   - refresh: 'true' to bypass in-memory cache and fetch fresh data
  *
  * Returns:
- *   - 200: { success: true, data: Grant[], total: number }
+ *   - 200: { success: true, data: GrantWithMeta[], total: number }
  *   - 400: { success: false, error: string } for invalid parameters
  *   - 500: { success: false, error: string } for server/API errors
  */
@@ -22,15 +24,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   searchGrants,
   filterGrantsForFQHC,
+  enrichGrantsWithDetails,
+  clearAllCache,
   type GrantSearchParams,
 } from '@/lib/api/grants-gov';
-import type { Grant, ApiResponse } from '@/lib/types';
+import type { GrantWithMeta, ApiResponse } from '@/lib/types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface GrantsApiResponse extends ApiResponse<Grant[]> {
+interface GrantsApiResponse extends ApiResponse<GrantWithMeta[]> {
   total?: number;
   cached?: boolean;
 }
@@ -90,6 +94,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<GrantsApiR
     const status = validateStatus(searchParams.get('status'));
     const limit = validateLimit(searchParams.get('limit'));
     const fqhcOnly = searchParams.get('fqhcOnly') === 'true';
+    const refresh = searchParams.get('refresh') === 'true';
+
+    // Clear in-memory cache if refresh is requested
+    if (refresh) {
+      clearAllCache();
+    }
 
     // Build search parameters
     const searchOptions: GrantSearchParams = {
@@ -101,18 +111,21 @@ export async function GET(request: NextRequest): Promise<NextResponse<GrantsApiR
     };
 
     // Fetch grants from Grants.gov API (with caching)
-    let grants = await searchGrants(searchOptions);
+    let basicGrants = await searchGrants(searchOptions);
 
     // Apply FQHC filtering if requested
     if (fqhcOnly) {
-      grants = filterGrantsForFQHC(grants);
+      basicGrants = filterGrantsForFQHC(basicGrants);
     }
+
+    // Enrich grants with details from SQLite cache or API
+    const enrichedGrants = await enrichGrantsWithDetails(basicGrants);
 
     // Return successful response
     return NextResponse.json({
       success: true,
-      data: grants,
-      total: grants.length,
+      data: enrichedGrants,
+      total: enrichedGrants.length,
     });
   } catch (error) {
     // Log error for debugging (server-side only)

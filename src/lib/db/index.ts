@@ -100,7 +100,9 @@ const CREATE_TABLES_SQL = `
     status TEXT NOT NULL CHECK (status IN ('forecasted', 'posted', 'closed')),
     application_url TEXT NOT NULL,
     source_url TEXT NOT NULL,
-    cached_at INTEGER NOT NULL DEFAULT (unixepoch())
+    cached_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    last_checked_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
   -- Pipeline Items table

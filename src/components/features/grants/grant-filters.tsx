@@ -8,7 +8,9 @@ import type { GrantSearchFilters, GrantStatus } from "@/lib/types";
 
 interface GrantFiltersProps {
   onFilterChange: (filters: GrantSearchFilters) => void;
+  onRefresh?: () => Promise<void>;
   initialFilters?: GrantSearchFilters;
+  isRefreshing?: boolean;
 }
 
 /**
@@ -37,8 +39,14 @@ const statusOptions = [
  *
  * Provides search and filter controls for grant discovery.
  * Client component for interactivity (search input, dropdowns, button).
+ * Includes a "Refresh Grants" button for manual cache bypass.
  */
-export function GrantFilters({ onFilterChange, initialFilters }: GrantFiltersProps) {
+export function GrantFilters({
+  onFilterChange,
+  onRefresh,
+  initialFilters,
+  isRefreshing = false,
+}: GrantFiltersProps) {
   const [query, setQuery] = useState(initialFilters?.query || "");
   const [agency, setAgency] = useState(initialFilters?.agency || "");
   const [status, setStatus] = useState<GrantStatus | "">(initialFilters?.status || "");
@@ -117,6 +125,15 @@ export function GrantFilters({ onFilterChange, initialFilters }: GrantFiltersPro
           {hasActiveFilters && (
             <Button variant="outline" onClick={handleClearFilters}>
               Clear
+            </Button>
+          )}
+          {onRefresh && (
+            <Button
+              variant="outline"
+              onClick={onRefresh}
+              disabled={isRefreshing}
+            >
+              {isRefreshing ? "Refreshing..." : "Refresh Grants"}
             </Button>
           )}
         </div>

@@ -142,6 +142,16 @@ export const grants = sqliteTable('grants', {
   cachedAt: integer('cached_at', { mode: 'timestamp' })
     .notNull()
     .default(sql`(unixepoch())`),
+
+  /** When we first discovered this grant (Unix timestamp) */
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+
+  /** Last time we verified this grant exists (Unix timestamp) */
+  lastCheckedAt: integer('last_checked_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
 });
 
 // ============================================================================

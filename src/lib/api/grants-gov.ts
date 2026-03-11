@@ -2,11 +2,19 @@
  * Grants.gov API Client
  *
  * Provides functions to search and retrieve federal grant opportunities
- * from the Grants.gov API. Includes in-memory caching with 1-hour TTL
- * and rule-based filtering for FQHC-relevant grants.
+ * from the Grants.gov API. Includes in-memory caching with 4-hour TTL,
+ * persistent SQLite caching for grant details, and rule-based filtering
+ * for FQHC-relevant grants.
  */
 
-import type { Grant, GrantStatus } from '../types';
+import type { Grant, GrantStatus, GrantWithMeta } from '../types';
+import {
+  getCachedGrants,
+  saveGrantsToCache,
+  markGrantsAsChecked,
+  isGrantNew,
+  type CachedGrant,
+} from '../db/grants-cache';
 
 // ============================================================================
 // Configuration Constants
@@ -15,8 +23,11 @@ import type { Grant, GrantStatus } from '../types';
 const GRANTS_GOV_SEARCH_URL = 'https://api.grants.gov/v1/api/search2';
 const GRANTS_GOV_DETAILS_URL = 'https://api.grants.gov/v1/api/fetchOpportunity';
 
-/** Cache TTL in milliseconds (1 hour) */
-const CACHE_TTL_MS = 60 * 60 * 1000;
+/** Cache TTL in milliseconds (4 hours) */
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+
+/** Maximum concurrent detail fetches to avoid overwhelming the API */
+const MAX_CONCURRENT_FETCHES = 5;
 
 /** Health-related agencies that are relevant to FQHCs */
 const FQHC_RELEVANT_AGENCIES = ['HHS', 'HRSA', 'CDC', 'SAMHSA', 'NIH', 'CMS', 'ACF', 'AHRQ'];
@@ -486,4 +497,155 @@ export function filterGrantsForFQHC(grants: Grant[]): Grant[] {
 export async function searchGrantsForFQHC(params: GrantSearchParams = {}): Promise<Grant[]> {
   const grants = await searchGrants(params);
   return filterGrantsForFQHC(grants);
+}
+
+// ============================================================================
+// Grant Detail Enrichment with Persistent Caching
+// ============================================================================
+
+/**
+ * Fetches grant details in batches with rate limiting.
+ * Processes up to MAX_CONCURRENT_FETCHES grants at a time.
+ *
+ * @param grantIds - Array of grant IDs to fetch details for
+ * @returns Map of grantId -> Grant details (or null if fetch failed)
+ */
+async function fetchDetailsInBatches(grantIds: string[]): Promise<Map<string, Grant | null>> {
+  const results = new Map<string, Grant | null>();
+
+  if (grantIds.length === 0) {
+    return results;
+  }
+
+  // Process in batches of MAX_CONCURRENT_FETCHES
+  for (let i = 0; i < grantIds.length; i += MAX_CONCURRENT_FETCHES) {
+    const batch = grantIds.slice(i, i + MAX_CONCURRENT_FETCHES);
+
+    // Fetch all grants in this batch concurrently
+    const batchPromises = batch.map(async (id) => {
+      try {
+        const details = await getGrantDetails(id);
+        return { id, details };
+      } catch (error) {
+        console.error(`Failed to fetch details for grant ${id}:`, error);
+        return { id, details: null };
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+
+    for (const { id, details } of batchResults) {
+      results.set(id, details);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Enriches basic grant data with full details.
+ *
+ * Flow:
+ * 1. Check SQLite for cached grants
+ * 2. Identify which grants need detail fetching (not in cache)
+ * 3. Fetch details in parallel (max 5 concurrent)
+ * 4. Save new grants to SQLite
+ * 5. Return merged results with isNew flag
+ *
+ * @param basicGrants - Array of basic grants from search API
+ * @returns Array of grants with full details and isNew metadata
+ */
+export async function enrichGrantsWithDetails(basicGrants: Grant[]): Promise<GrantWithMeta[]> {
+  if (basicGrants.length === 0) {
+    return [];
+  }
+
+  // Step 1: Get IDs and check SQLite cache
+  const grantIds = basicGrants.map(g => g.id);
+  let cachedGrants: Map<string, CachedGrant>;
+
+  try {
+    cachedGrants = await getCachedGrants(grantIds);
+  } catch (error) {
+    console.error('Failed to get cached grants:', error);
+    cachedGrants = new Map();
+  }
+
+  // Step 2: Identify grants that need detail fetching
+  const uncachedIds: string[] = [];
+  for (const id of grantIds) {
+    if (!cachedGrants.has(id)) {
+      uncachedIds.push(id);
+    }
+  }
+
+  // Step 3: Fetch details for uncached grants
+  let newlyFetchedDetails: Map<string, Grant | null> = new Map();
+  if (uncachedIds.length > 0) {
+    newlyFetchedDetails = await fetchDetailsInBatches(uncachedIds);
+  }
+
+  // Step 4: Save newly fetched grants to SQLite
+  const grantsToSave: Grant[] = [];
+  for (const [id, details] of newlyFetchedDetails.entries()) {
+    if (details) {
+      grantsToSave.push(details);
+    }
+  }
+
+  if (grantsToSave.length > 0) {
+    try {
+      await saveGrantsToCache(grantsToSave);
+    } catch (error) {
+      console.error('Failed to save grants to cache:', error);
+    }
+  }
+
+  // Update lastCheckedAt for cached grants that were found in search results
+  const cachedIds = Array.from(cachedGrants.keys());
+  if (cachedIds.length > 0) {
+    try {
+      await markGrantsAsChecked(cachedIds);
+    } catch (error) {
+      console.error('Failed to mark grants as checked:', error);
+    }
+  }
+
+  // Step 5: Build final results with isNew flag
+  const results: GrantWithMeta[] = [];
+  const now = new Date();
+
+  for (const basicGrant of basicGrants) {
+    const cached = cachedGrants.get(basicGrant.id);
+    const newlyFetched = newlyFetchedDetails.get(basicGrant.id);
+
+    let enrichedGrant: GrantWithMeta;
+
+    if (cached) {
+      // Use cached data with full details
+      enrichedGrant = {
+        ...cached,
+        isNew: isGrantNew(cached.firstSeenAt),
+        firstSeenAt: cached.firstSeenAt,
+      };
+    } else if (newlyFetched) {
+      // Use newly fetched data - this is a new grant
+      enrichedGrant = {
+        ...newlyFetched,
+        isNew: true, // Just discovered, so it's new
+        firstSeenAt: now,
+      };
+    } else {
+      // Fallback to basic grant data if fetch failed
+      enrichedGrant = {
+        ...basicGrant,
+        isNew: true, // Assume new if we couldn't check cache
+        firstSeenAt: now,
+      };
+    }
+
+    results.push(enrichedGrant);
+  }
+
+  return results;
 }

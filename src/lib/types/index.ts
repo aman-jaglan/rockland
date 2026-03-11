@@ -107,6 +107,20 @@ export interface GrantSummary {
   status: GrantStatus;
 }
 
+/**
+ * Grant with caching metadata
+ *
+ * Extends Grant with metadata from the persistent cache.
+ * Used to display "New" badge and track grant discovery.
+ */
+export interface GrantWithMeta extends Grant {
+  /** True if firstSeenAt is less than 7 days ago */
+  isNew?: boolean;
+
+  /** When we first discovered this grant in our system */
+  firstSeenAt?: Date;
+}
+
 // ============================================================================
 // FQHC Profile Types
 // ============================================================================

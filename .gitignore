@@ -52,3 +52,8 @@ next-env.d.ts
 
 # Keys
 *.pem
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
