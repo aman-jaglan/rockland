@@ -91,6 +91,15 @@ interface GrantsGovDetailsData {
     awardFloor?: number;
     applicantEligibilityDesc?: string;
   };
+  forecast?: {
+    forecastDesc: string;
+    postingDate: string;
+    estApplicationResponseDate?: string;
+    estSynopsisPostingDate?: string;
+    estimatedFunding?: string;
+    numberOfAwards?: string;
+    applicantEligibilityDesc?: string;
+  };
   agencyDetails?: {
     agencyCode: string;
     agencyName: string;
@@ -408,25 +417,47 @@ export async function getGrantDetails(opportunityId: string): Promise<Grant | nu
     }
 
     const synopsis = data.synopsis;
+    const forecast = data.forecast;
     const agencyCode = data.agencyDetails?.agencyCode || data.owningAgencyCode || 'Unknown Agency';
     const alnNumber = data.alns?.[0]?.assistanceListingNumber || '';
     const fundingInstrument = data.fundingInstruments?.[0]?.description || 'Grant';
+
+    // Handle both posted grants (synopsis) and forecasted grants (forecast)
+    const description = synopsis?.synopsisDesc || forecast?.forecastDesc || '';
+    const eligibility = synopsis?.applicantEligibilityDesc || forecast?.applicantEligibilityDesc || '';
+    const deadlineStr = synopsis?.responseDate || forecast?.estApplicationResponseDate || '';
+    const postedDateStr = synopsis?.postingDate || forecast?.postingDate || '';
+
+    // Parse funding amount - synopsis has numbers, forecast has string
+    let fundingMin = synopsis?.awardFloor || 0;
+    let fundingMax = synopsis?.awardCeiling || 0;
+    if (forecast?.estimatedFunding && !fundingMax) {
+      const estimatedFunding = parseInt(forecast.estimatedFunding, 10);
+      if (!isNaN(estimatedFunding)) {
+        fundingMax = estimatedFunding;
+      }
+    }
+
+    // Determine status
+    const isForecasted = !synopsis && !!forecast;
+    const isClosed = synopsis?.archiveDate ? true : false;
+    const grantStatus: GrantStatus = isClosed ? 'closed' : (isForecasted ? 'forecasted' : 'posted');
 
     const grant: Grant = {
       id: String(data.id) || opportunityId,
       title: data.opportunityTitle || 'Untitled Grant',
       agency: agencyCode,
-      description: synopsis?.synopsisDesc || '',
-      eligibilityDescription: synopsis?.applicantEligibilityDesc || '',
+      description,
+      eligibilityDescription: eligibility,
       fundingAmount: {
-        min: synopsis?.awardFloor || 0,
-        max: synopsis?.awardCeiling || 0,
+        min: fundingMin,
+        max: fundingMax,
       },
-      deadline: parseGrantsGovDate(synopsis?.responseDate),
-      postedDate: parseGrantsGovDate(synopsis?.postingDate),
+      deadline: parseGrantsGovDate(deadlineStr),
+      postedDate: parseGrantsGovDate(postedDateStr),
       grantType: fundingInstrument,
       cfdaNumber: alnNumber,
-      status: synopsis?.archiveDate ? 'closed' : 'posted',
+      status: grantStatus,
       applicationUrl: `https://www.grants.gov/web/grants/search-grants.html?keywords=${encodeURIComponent(data.opportunityNumber || opportunityId)}`,
       sourceUrl: `https://www.grants.gov/search-results-detail/${data.id || opportunityId}`,
     };
