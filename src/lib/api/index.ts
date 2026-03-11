@@ -28,3 +28,10 @@ export {
 
 // AI Chat API
 export { useChat, buildChatContext } from './ai-chat';
+
+// Synthetic Profile (Demo Mode)
+export {
+  SYNTHETIC_PROFILE,
+  getSyntheticProfile,
+  isDemoMode,
+} from '../data/synthetic-profile';
