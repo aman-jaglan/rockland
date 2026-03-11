@@ -25,3 +25,6 @@ export {
   clearMatchCache,
   clearExpiredMatchCache,
 } from './ai-matching';
+
+// AI Chat API
+export { useChat, buildChatContext } from './ai-chat';
