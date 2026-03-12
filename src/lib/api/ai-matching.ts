@@ -394,7 +394,7 @@ export async function calculateBatchMatches(
  * Check if AI matching is available
  */
 export function isAIMatchingAvailable(): boolean {
-  return !!process.env.GOOGLE_API_KEY;
+  return !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 }
 
 /**

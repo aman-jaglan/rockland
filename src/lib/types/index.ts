@@ -388,8 +388,17 @@ export interface GrantSearchFilters {
   status?: GrantStatus;
   minAmount?: number;
   maxAmount?: number;
+  minScore?: number;
   deadlineBefore?: Date;
   deadlineAfter?: Date;
+}
+
+/**
+ * Grant combined with its match analysis
+ */
+export interface GrantWithMatch {
+  grant: GrantWithMeta;
+  match: GrantMatch;
 }
 
 /**
