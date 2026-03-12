@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HtmlContent } from "@/components/ui/html-content";
 import { ChatInterface } from "@/components/features/grants/chat-interface";
 import type { Grant, FQHCProfile, GrantMatch } from "@/lib/types";
 
@@ -62,6 +63,15 @@ function getFitScoreColor(score: number): string {
 }
 
 /**
+ * Get fit score label
+ */
+function getFitScoreLabel(score: number): string {
+  if (score >= 8) return "Strong Match";
+  if (score >= 5) return "Moderate Match";
+  return "Limited Match";
+}
+
+/**
  * Agency badge colors for different federal agencies
  */
 const agencyColors: Record<string, string> = {
@@ -73,14 +83,77 @@ const agencyColors: Record<string, string> = {
 };
 
 function getAgencyColor(agency: string): string {
-  return agencyColors[agency] || "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200";
+  // Check if agency contains any of the known agency codes
+  for (const [code, color] of Object.entries(agencyColors)) {
+    if (agency.toUpperCase().includes(code)) {
+      return color;
+    }
+  }
+  return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200";
+}
+
+/**
+ * Generate "not matching" factors based on what's missing
+ */
+function getNotMatchingFactors(grant: Grant, profile: FQHCProfile, match: GrantMatch): string[] {
+  const notMatching: string[] = [];
+  const grantText = `${grant.title} ${grant.description || ''} ${grant.eligibilityDescription || ''}`.toLowerCase();
+
+  // Check if any services are NOT mentioned
+  const servicesNotMentioned = profile.services.filter(
+    service => !grantText.includes(service.toLowerCase())
+  );
+  if (servicesNotMentioned.length > 0 && servicesNotMentioned.length === profile.services.length) {
+    notMatching.push(`Grant does not specifically mention your services (${servicesNotMentioned.slice(0, 2).join(', ')}${servicesNotMentioned.length > 2 ? '...' : ''})`);
+  }
+
+  // Check if demographics are NOT mentioned
+  const demographicsNotMentioned = profile.patientDemographics.filter(
+    demo => !grantText.includes(demo.toLowerCase())
+  );
+  if (demographicsNotMentioned.length > 0 && demographicsNotMentioned.length === profile.patientDemographics.length) {
+    notMatching.push(`Grant does not target your patient demographics specifically`);
+  }
+
+  // Check if location is NOT mentioned
+  const locationMentioned = grantText.includes(profile.address.state.toLowerCase()) ||
+    grantText.includes(profile.address.city.toLowerCase());
+  if (!locationMentioned && !grantText.includes('national') && !grantText.includes('all states')) {
+    notMatching.push(`Grant may have geographic restrictions not matching ${profile.address.state}`);
+  }
+
+  // Check agency relevance
+  const fqhcAgencies = ['HRSA', 'HHS', 'CDC', 'SAMHSA', 'NIH', 'CMS'];
+  const agencyUpper = grant.agency.toUpperCase();
+  const isHealthAgency = fqhcAgencies.some(a => agencyUpper.includes(a));
+  if (!isHealthAgency) {
+    notMatching.push(`${grant.agency} is not a primary health-focused agency for FQHCs`);
+  }
+
+  // Check if FQHC/health center is NOT mentioned
+  const fqhcMentioned = grantText.includes('fqhc') ||
+    grantText.includes('health center') ||
+    grantText.includes('community health') ||
+    grantText.includes('federally qualified');
+  if (!fqhcMentioned) {
+    notMatching.push(`Grant does not specifically target FQHCs or health centers`);
+  }
+
+  // Check funding size appropriateness
+  if (grant.fundingAmount.max > 0 && grant.fundingAmount.max < 10000) {
+    notMatching.push(`Small funding amount ($${grant.fundingAmount.max.toLocaleString()}) may not justify application effort`);
+  }
+
+  return notMatching.slice(0, 4); // Limit to 4 items
 }
 
 /**
  * Match Analysis Card Component
  */
-function MatchAnalysisCard({ match }: { match: GrantMatch }) {
+function MatchAnalysisCard({ match, grant, profile }: { match: GrantMatch; grant: Grant; profile: FQHCProfile }) {
   const scoreColor = getFitScoreColor(match.fitScore);
+  const scoreLabel = getFitScoreLabel(match.fitScore);
+  const notMatching = getNotMatchingFactors(grant, profile, match);
 
   return (
     <Card>
@@ -89,76 +162,106 @@ function MatchAnalysisCard({ match }: { match: GrantMatch }) {
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Match Analysis
           </h3>
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-lg font-bold border ${scoreColor}`}
-          >
-            {match.fitScore}/10
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 dark:text-gray-400">{scoreLabel}</span>
+            <div
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-lg font-bold border ${scoreColor}`}
+            >
+              {match.fitScore}/10
+            </div>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {/* Fit explanation */}
-        <p className="text-gray-700 dark:text-gray-300 mb-4">
+        <p className="text-gray-700 dark:text-gray-300 mb-5">
           {match.fitExplanation}
         </p>
 
-        {/* Matched criteria */}
-        {match.matchedCriteria.length > 0 && (
-          <div className="mb-4">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-              Matching Factors
-            </p>
-            <div className="space-y-1.5">
-              {match.matchedCriteria.map((criterion, index) => (
-                <div
-                  key={index}
-                  className="flex items-start gap-2 text-sm text-green-700 dark:text-green-300"
-                >
-                  <svg
-                    className="w-4 h-4 mt-0.5 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                  <span>{criterion}</span>
-                </div>
-              ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Matched criteria - left column */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-green-700 dark:text-green-400">
+                What Matches
+              </p>
             </div>
+            {match.matchedCriteria.length > 0 ? (
+              <div className="space-y-2">
+                {match.matchedCriteria.map((criterion, index) => (
+                  <div
+                    key={index}
+                    className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 pl-2"
+                  >
+                    <span className="text-green-500 mt-1">+</span>
+                    <span>{criterion}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 pl-2">
+                No specific matching factors identified
+              </p>
+            )}
           </div>
-        )}
+
+          {/* Not matching - right column */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                <svg className="w-4 h-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                Gaps / Not Matching
+              </p>
+            </div>
+            {notMatching.length > 0 ? (
+              <div className="space-y-2">
+                {notMatching.map((item, index) => (
+                  <div
+                    key={index}
+                    className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 pl-2"
+                  >
+                    <span className="text-red-500 mt-1">-</span>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 pl-2">
+                No significant gaps identified
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* Potential concerns */}
         {match.potentialConcerns.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-              Considerations
-            </p>
-            <div className="space-y-1.5">
+          <div className="mt-5 pt-5 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                Considerations
+              </p>
+            </div>
+            <div className="space-y-2">
               {match.potentialConcerns.map((concern, index) => (
                 <div
                   key={index}
-                  className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-300"
+                  className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 pl-2"
                 >
-                  <svg
-                    className="w-4 h-4 mt-0.5 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    />
-                  </svg>
+                  <span className="text-amber-500 mt-1">!</span>
                   <span>{concern}</span>
                 </div>
               ))}
@@ -205,7 +308,7 @@ export function GrantDetailClient({
           fitScore: match.fitScore,
           fitExplanation: match.fitExplanation,
           deadline: grant.deadline,
-          status: "discovered",
+          status: "interested",
         }),
       });
 
@@ -327,7 +430,7 @@ export function GrantDetailClient({
             </Card>
 
             {/* Match analysis */}
-            <MatchAnalysisCard match={match} />
+            <MatchAnalysisCard match={match} grant={grant} profile={profile} />
 
             {/* Description section */}
             <Card>
@@ -337,9 +440,16 @@ export function GrantDetailClient({
                 </h3>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                  {grant.description || "No description available."}
-                </p>
+                {grant.description ? (
+                  <HtmlContent
+                    html={grant.description}
+                    className="text-gray-700 dark:text-gray-300"
+                  />
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 italic">
+                    No description available.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -351,10 +461,16 @@ export function GrantDetailClient({
                 </h3>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                  {grant.eligibilityDescription ||
-                    "No eligibility information available."}
-                </p>
+                {grant.eligibilityDescription ? (
+                  <HtmlContent
+                    html={grant.eligibilityDescription}
+                    className="text-gray-700 dark:text-gray-300"
+                  />
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 italic">
+                    No eligibility information available.
+                  </p>
+                )}
               </CardContent>
             </Card>
 

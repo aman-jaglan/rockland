@@ -19,8 +19,10 @@ const FQHC_SERVICES = [
   "Pharmacy",
   "OB/GYN",
   "Pediatrics",
-  "Substance Abuse",
+  "Substance Abuse Treatment",
   "Vision",
+  "Telehealth",
+  "Women's Health",
 ];
 
 /**
@@ -34,6 +36,10 @@ const PATIENT_DEMOGRAPHICS = [
   "Migrant Workers",
   "Veterans",
   "Rural",
+  "LGBTQ+",
+  "Immigrants",
+  "Elderly",
+  "Children",
 ];
 
 /**

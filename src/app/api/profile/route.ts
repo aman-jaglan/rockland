@@ -1,37 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { FQHCProfile, ApiResponse } from "@/lib/types";
+import { SYNTHETIC_PROFILE } from "@/lib/data/synthetic-profile";
 
 /**
  * Profile API Route
  *
  * Handles CRUD operations for the FQHC organization profile.
- * Uses localStorage on the client side for prototype purposes.
- * The actual storage is handled client-side; this API provides
- * a standard REST interface for future database integration.
+ * Returns the synthetic profile by default for demo mode.
  *
- * For prototype: Profile is stored in localStorage
+ * For prototype: Profile starts with synthetic data, can be updated
  * For production: Would connect to database (Drizzle + SQLite/PostgreSQL)
  */
 
-const PROFILE_STORAGE_KEY = "fqhc_profile";
-
 // In-memory storage for server-side operations
-// In production, this would be a database call
-let serverProfile: FQHCProfile | null = null;
+// Starts with synthetic profile for demo mode
+let serverProfile: FQHCProfile | null = { ...SYNTHETIC_PROFILE };
 
 /**
  * GET /api/profile
  *
  * Returns the current organization profile.
- * Returns null if no profile exists (first-time user).
+ * Returns synthetic profile if no custom profile exists.
  */
-export async function GET(): Promise<NextResponse<ApiResponse<FQHCProfile | null>>> {
+export async function GET(): Promise<NextResponse<ApiResponse<FQHCProfile>>> {
   try {
-    // For prototype, return the in-memory profile
-    // In production, this would query the database
+    // Return the current profile (starts with synthetic for demo)
+    const profile = serverProfile || { ...SYNTHETIC_PROFILE };
+
     return NextResponse.json({
       success: true,
-      data: serverProfile,
+      data: profile,
     });
   } catch (error) {
     const errorMessage =
@@ -99,7 +97,6 @@ export async function POST(
 
     // Create or update profile
     const now = new Date();
-    const isUpdate = serverProfile !== null;
 
     const profile: FQHCProfile = {
       id: serverProfile?.id || generateProfileId(),

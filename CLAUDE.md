@@ -2,11 +2,39 @@
 
 ## Project Context
 
-This section will be filled in when the task is received. Before starting any work, update this section with:
-- What are we building and why?
-- Who will review this code?
-- What are the deliverables?
-- What is the timeline?
+### What We're Building
+A **Grant Discovery & Pipeline Management Tool** for FQHC (Federally Qualified Health Center) CFOs. Focus is strictly on **discovery, qualification, and pipeline tracking** of grants — NOT reporting or compliance (that's a separate product surface).
+
+### Who Is the User
+A CFO at an FQHC. **They have ~10 minutes a week to look at a new tool.** Whatever we build must be immediately useful within that window. Their current stack is QuickBooks, Excel, and email. Their finance team is 2-4 people managing 5-15 active grants manually. Grant discovery currently takes 4-6 hours/week of manual database searching.
+
+### What Are the Deliverables
+1. **Prototype** — Deployed link to public URL so they can click around and try it
+2. **Product requirements doc and architecture spec** — Real product thinking + technical architecture
+3. **Repository** — Share access to codebase (clean atomic commits)
+4. **Key decisions** — 3-5 bullets: what you built, what you cut, one technical decision you'd revisit with more time
+5. **AI usage reflection** — Share actual AI chat transcripts + short reflection: one moment AI accelerated you, one moment AI led you wrong, one decision you made against AI's suggestion
+6. **Build log** — Brief timeline of what you tried, what broke, how you fixed it (timestamps fine)
+
+**Submit all outputs 24-48 hours before live session.**
+
+### What Is the Timeline
+2-3 hours to build and deploy. Then a live session: 15-20 min demo + 40 min pair coding with curveballs + Q&A.
+
+### Technical Requirements
+- **Must make at least one real API call AND process a database (can be synthetic)**
+- Grants.gov API (free, no auth) or SAM.gov (free API key) for grant data
+- Scale doesn't matter — cache locally, use sample data. They evaluate what you do with data, not volume handling.
+- Focus: Discovery → Qualification → Pipeline Tracking
+- **If the insight is buried five clicks deep, it won't matter how technically impressive the pipeline is**
+
+### Core Features (Priority Order)
+- **P0:** Grant discovery engine (Grants.gov API), AI eligibility matching against FQHC profile, pipeline tracker (Discovered → Evaluating → Applying → Submitted → Awarded), FQHC org profile setup
+- **P1:** Grant detail view with AI fit assessment, deadline calendar, auto-generated eligibility checklist
+- **P2:** Notes/collaboration, saved searches, board-ready pipeline export
+
+### Full Context
+See `ROCKLAND_ASSESSMENT_CONTEXT.md` for the complete customer transcript, company background, and detailed requirements extraction.
 
 Understanding the WHY behind the build is critical. Every architecture decision, every tradeoff, every shortcut must be justified against the project goal and timeline.
 
