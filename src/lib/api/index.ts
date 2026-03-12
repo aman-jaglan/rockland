@@ -20,7 +20,6 @@ export {
 export {
   calculateGrantMatch,
   calculateBatchMatches,
-  calculateRuleBasedMatch,
   isAIMatchingAvailable,
   clearMatchCache,
   clearExpiredMatchCache,

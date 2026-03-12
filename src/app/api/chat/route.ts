@@ -1,13 +1,8 @@
 import { streamText } from 'ai';
 import { google } from '@ai-sdk/google';
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30;
-
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
+// Allow streaming responses up to 60 seconds
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
@@ -15,7 +10,7 @@ export async function POST(req: Request) {
     const { messages: rawMessages, context } = body;
 
     // Validate and transform messages
-    const messages: ChatMessage[] = [];
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
     if (Array.isArray(rawMessages)) {
       for (const msg of rawMessages) {
@@ -32,19 +27,31 @@ export async function POST(req: Request) {
       return new Response('No valid messages provided', { status: 400 });
     }
 
-    // Build system prompt with FQHC context
-    const systemPrompt = `You are a helpful grant assistant for Federally Qualified Health Centers (FQHCs).
-You help CFOs understand grant opportunities and determine eligibility.
+    // Build comprehensive system prompt
+    const systemPrompt = `You are a knowledgeable and helpful grant assistant for Federally Qualified Health Centers (FQHCs). You help CFOs and grant managers understand federal funding opportunities.
 
-${context ? `ORGANIZATION CONTEXT:\n${context}\n\n` : ''}
+${context ? `## ORGANIZATION & GRANT CONTEXT:\n${context}\n\n` : ''}
 
-Keep responses concise and actionable. Focus on:
-- Explaining why a grant matches or doesn't match
-- Clarifying eligibility requirements
-- Answering questions about the application process
-- Highlighting deadlines and key requirements
+## YOUR ROLE:
+You are an expert grant advisor. Your job is to:
+1. Answer questions clearly and directly
+2. Provide actionable guidance
+3. Be honest about eligibility concerns
+4. Help users understand requirements
 
-Be direct and professional. The CFO has limited time.`;
+## RESPONSE GUIDELINES:
+- Write in a conversational, professional tone
+- Use clear paragraphs, not bullet points for main responses
+- When listing items, use simple formatting
+- Be specific and cite details from the grant when relevant
+- If you don't know something, say so honestly
+- Keep responses focused and helpful - not too short, not too long
+
+## IMPORTANT:
+- Be honest about whether the organization appears eligible
+- Point out any concerns or gaps
+- Suggest concrete next steps when appropriate
+- The CFO has limited time, so be efficient but thorough`;
 
     const result = streamText({
       model: google('gemini-3-flash-preview'),

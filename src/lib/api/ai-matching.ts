@@ -1,12 +1,8 @@
 /**
  * AI-Powered Grant Eligibility Matching
  *
- * Provides intelligent matching between grants and FQHC profiles.
- * Uses a hybrid approach:
- * - Google Gemini API if GOOGLE_API_KEY is available
- * - Rule-based fallback if no API key or API fails
- *
- * Includes caching to avoid redundant API calls for the same grant+profile pair.
+ * Uses Google Gemini for ALL matching - no rule-based fallback.
+ * Results are cached to avoid redundant API calls.
  */
 
 import { generateText } from 'ai';
@@ -14,59 +10,24 @@ import { google } from '@ai-sdk/google';
 import type { Grant, FQHCProfile, GrantMatch } from '../types';
 
 // ============================================================================
-// Configuration
+// Cache Implementation (In-Memory for Vercel compatibility)
 // ============================================================================
 
-/** Cache TTL for match results in milliseconds (4 hours) */
-const MATCH_CACHE_TTL_MS = 4 * 60 * 60 * 1000;
-
-/** Health-related agencies most relevant to FQHCs */
-const FQHC_PRIORITY_AGENCIES = ['HRSA', 'HHS', 'CDC', 'SAMHSA', 'NIH', 'CMS', 'ACF', 'AHRQ'];
-
-/** Days threshold for urgent deadline warning */
-const URGENT_DEADLINE_DAYS = 14;
-
-/** Keywords that indicate strong FQHC relevance */
-const FQHC_RELEVANT_KEYWORDS = [
-  'community health',
-  'federally qualified',
-  'fqhc',
-  'health center',
-  'primary care',
-  'underserved',
-  'low-income',
-  'uninsured',
-  'medicaid',
-  'health equity',
-  'rural health',
-  'migrant health',
-  'homeless health',
-  'behavioral health',
-  'substance abuse',
-  'mental health',
-  'maternal health',
-  'pediatric',
-  'dental',
-  'hiv',
-  'aids',
-  'chronic disease',
-  'diabetes',
-  'hypertension',
-  'prevention',
-  'workforce',
-  'telehealth',
-];
-
-// ============================================================================
-// Cache Implementation
-// ============================================================================
+/** Cache TTL for match results in milliseconds (24 hours) */
+const MATCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface CacheEntry {
   match: GrantMatch;
   timestamp: number;
 }
 
-const matchCache = new Map<string, CacheEntry>();
+// Use global to persist cache across HMR in development
+const globalForCache = globalThis as typeof globalThis & {
+  matchCache?: Map<string, CacheEntry>;
+};
+
+const matchCache = globalForCache.matchCache ?? new Map<string, CacheEntry>();
+globalForCache.matchCache = matchCache;
 
 /**
  * Generates a unique cache key for a grant+profile pair
@@ -83,15 +44,18 @@ function getCachedMatch(grantId: string, profileId: string): GrantMatch | null {
   const entry = matchCache.get(cacheKey);
 
   if (!entry) {
+    console.log(`[AI-Match] Cache MISS for ${cacheKey} (cache size: ${matchCache.size})`);
     return null;
   }
 
   const isExpired = Date.now() - entry.timestamp > MATCH_CACHE_TTL_MS;
   if (isExpired) {
+    console.log(`[AI-Match] Cache EXPIRED for ${cacheKey}`);
     matchCache.delete(cacheKey);
     return null;
   }
 
+  console.log(`[AI-Match] Cache HIT for ${cacheKey}`);
   return entry.match;
 }
 
@@ -104,6 +68,7 @@ function setCachedMatch(match: GrantMatch): void {
     match,
     timestamp: Date.now(),
   });
+  console.log(`[AI-Match] Cached result for ${cacheKey} (cache size: ${matchCache.size})`);
 }
 
 /**
@@ -113,95 +78,85 @@ export function clearMatchCache(): void {
   matchCache.clear();
 }
 
-/**
- * Clears expired match cache entries
- */
-export function clearExpiredMatchCache(): number {
-  const now = Date.now();
-  let clearedCount = 0;
-
-  for (const [key, entry] of matchCache.entries()) {
-    if (now - entry.timestamp > MATCH_CACHE_TTL_MS) {
-      matchCache.delete(key);
-      clearedCount++;
-    }
-  }
-
-  return clearedCount;
-}
-
 // ============================================================================
-// AI Prompt Building
+// AI Matching - Single Grant
 // ============================================================================
 
 /**
- * Builds a structured prompt for AI-based grant matching
+ * Builds prompt for single grant analysis
  */
-function buildAIMatchPrompt(grant: Grant, profile: FQHCProfile): string {
-  const fundingMin = grant.fundingAmount.min.toLocaleString();
-  const fundingMax = grant.fundingAmount.max.toLocaleString();
-  const deadlineStr = grant.deadline instanceof Date
-    ? grant.deadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : new Date(grant.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-
+function buildSingleGrantPrompt(grant: Grant, profile: FQHCProfile): string {
   return `You are a grant eligibility expert for Federally Qualified Health Centers (FQHCs).
 
-FQHC Profile:
-- Name: ${profile.name}
-- Services: ${profile.services.join(', ')}
-- Patient Demographics: ${profile.patientDemographics.join(', ')}
-- Location: ${profile.address.city}, ${profile.address.state}
-- Active Grants: ${profile.activeGrants.length > 0 ? profile.activeGrants.join(', ') : 'None listed'}
-- Staff: ${profile.staffCount}
-- Annual Budget: $${profile.annualBudget.toLocaleString()}
-- FQHC Designation: ${profile.fqhcDesignation ? 'Yes' : 'No'}
+Analyze this grant opportunity against the FQHC profile and determine if it's a good match.
 
-Grant Opportunity:
+## FQHC ORGANIZATION PROFILE:
+- Organization: ${profile.name}
+- Location: ${profile.address.city}, ${profile.address.state}
+- Services Offered: ${profile.services.join(', ')}
+- Patient Demographics Served: ${profile.patientDemographics.join(', ')}
+- Staff Count: ${profile.staffCount}
+- Annual Budget: $${profile.annualBudget.toLocaleString()}
+- FQHC Designation: ${profile.fqhcDesignation ? 'Yes (Federally Qualified)' : 'No'}
+- Current Active Grants: ${profile.activeGrants.length > 0 ? profile.activeGrants.join(', ') : 'None'}
+
+## GRANT OPPORTUNITY:
 - Title: ${grant.title}
 - Agency: ${grant.agency}
-- Description: ${grant.description || 'No description available'}
-- Eligibility: ${grant.eligibilityDescription || 'No eligibility criteria listed'}
-- Funding: $${fundingMin} - $${fundingMax}
-- Deadline: ${deadlineStr}
-- Status: ${grant.status}
+- Funding Range: $${grant.fundingAmount.min.toLocaleString()} - $${grant.fundingAmount.max.toLocaleString()}
+- Deadline: ${new Date(grant.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
 - Grant Type: ${grant.grantType}
+- Status: ${grant.status}
 
-Score this grant's fit for this FQHC on a scale of 1-10.
-Provide your analysis in the following JSON format only:
+### Grant Description:
+${grant.description || 'No description provided'}
+
+### Eligibility Requirements:
+${grant.eligibilityDescription || 'No eligibility criteria provided'}
+
+## YOUR TASK:
+Analyze the match between this grant and the FQHC profile. Return a JSON object with:
 
 {
   "fitScore": <number 1-10>,
-  "fitExplanation": "<2-3 sentences explaining why this score>",
-  "matchedCriteria": ["<list of matching factors>"],
-  "notMatchingCriteria": ["<list of gaps or aspects that don't align>"],
-  "potentialConcerns": ["<any concerns or conflicts>"]
+  "fitExplanation": "<2-3 clear sentences explaining the overall fit>",
+  "matchedCriteria": ["<specific things that match well>"],
+  "notMatchingCriteria": ["<specific gaps or misalignments>"],
+  "potentialConcerns": ["<warnings about deadlines, conflicts, or issues>"]
 }
 
-Important scoring guidelines:
-- 8-10: Strong fit - FQHC clearly eligible, services/demographics align, agency is relevant
-- 5-7: Moderate fit - Some alignment, may need to verify specific eligibility requirements
-- 1-4: Poor fit - Limited alignment, likely ineligible, or significant conflicts
+SCORING GUIDELINES:
+- 8-10: Strong match - organization clearly eligible, services/mission align directly
+- 5-7: Moderate match - some alignment, may need to stretch or verify eligibility
+- 1-4: Poor match - significant gaps, likely not eligible or poor fit
 
-For notMatchingCriteria, identify specific gaps like:
-- Services the FQHC offers that aren't mentioned in the grant
-- Demographics served that aren't targeted
-- Geographic mismatches
-- Only include REAL gaps, not every possible thing
+BE HONEST. If the grant doesn't match, say so. False positives waste CFO time.
 
-Respond with only the JSON object, no additional text.`;
+Return ONLY the JSON object, no other text.`;
 }
 
 /**
- * Parses AI response JSON into a match result
+ * Calls Gemini to analyze a single grant match
  */
-function parseAIResponse(
-  responseText: string,
-  grantId: string,
-  profileId: string
-): GrantMatch | null {
+async function analyzeGrantWithAI(
+  grant: Grant,
+  profile: FQHCProfile
+): Promise<GrantMatch | null> {
   try {
-    // Extract JSON from response (handle potential markdown code blocks)
-    let jsonStr = responseText.trim();
+    console.log(`[AI-Match] Calling Gemini for grant ${grant.id}...`);
+    const startTime = Date.now();
+
+    const result = await generateText({
+      model: google('gemini-3-flash-preview'),
+      prompt: buildSingleGrantPrompt(grant, profile),
+    });
+
+    console.log(`[AI-Match] Gemini response received in ${Date.now() - startTime}ms`);
+
+    const responseText = result.text.trim();
+
+    // Parse JSON from response
+    let jsonStr = responseText;
     if (jsonStr.startsWith('```json')) {
       jsonStr = jsonStr.slice(7);
     }
@@ -215,335 +170,246 @@ function parseAIResponse(
 
     const parsed = JSON.parse(jsonStr);
 
-    // Validate required fields
-    if (
-      typeof parsed.fitScore !== 'number' ||
-      typeof parsed.fitExplanation !== 'string' ||
-      !Array.isArray(parsed.matchedCriteria) ||
-      !Array.isArray(parsed.potentialConcerns)
-    ) {
-      return null;
-    }
-
-    // Ensure score is within bounds
-    const fitScore = Math.max(1, Math.min(10, Math.round(parsed.fitScore)));
-
     return {
-      grantId,
-      fqhcProfileId: profileId,
-      fitScore,
+      grantId: grant.id,
+      fqhcProfileId: profile.id,
+      fitScore: Math.max(1, Math.min(10, Math.round(parsed.fitScore))),
       fitExplanation: parsed.fitExplanation,
-      matchedCriteria: parsed.matchedCriteria,
+      matchedCriteria: parsed.matchedCriteria || [],
       notMatchingCriteria: parsed.notMatchingCriteria || [],
-      potentialConcerns: parsed.potentialConcerns,
+      potentialConcerns: parsed.potentialConcerns || [],
       calculatedAt: new Date(),
     };
-  } catch {
+  } catch (error) {
+    console.error('AI matching failed for grant:', grant.id, error);
     return null;
   }
 }
 
 // ============================================================================
-// AI API Integration (Google Gemini)
+// AI Matching - Batch (for Dashboard)
 // ============================================================================
 
 /**
- * Calls Google Gemini API to calculate grant match
- * Uses Vercel AI SDK with gemini-3-flash-preview model
- * Returns null if API call fails
+ * Builds prompt for batch grant scoring (dashboard view)
  */
-async function callGeminiAPI(
-  grant: Grant,
-  profile: FQHCProfile
-): Promise<GrantMatch | null> {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
+function buildBatchPrompt(grants: Grant[], profile: FQHCProfile): string {
+  const grantSummaries = grants.map((g, i) => `
+GRANT ${i + 1} (ID: ${g.id}):
+- Title: ${g.title}
+- Agency: ${g.agency}
+- Funding: $${g.fundingAmount.min.toLocaleString()} - $${g.fundingAmount.max.toLocaleString()}
+- Description: ${(g.description || '').slice(0, 500)}${(g.description || '').length > 500 ? '...' : ''}
+- Eligibility: ${(g.eligibilityDescription || '').slice(0, 300)}${(g.eligibilityDescription || '').length > 300 ? '...' : ''}
+`).join('\n');
 
-  const prompt = buildAIMatchPrompt(grant, profile);
+  return `You are a grant eligibility expert for Federally Qualified Health Centers (FQHCs).
+
+Score these grants for the FQHC below. Be STRICT - only high scores for genuine matches.
+
+## FQHC PROFILE:
+- Organization: ${profile.name}
+- Location: ${profile.address.city}, ${profile.address.state}
+- Services: ${profile.services.join(', ')}
+- Patient Demographics: ${profile.patientDemographics.join(', ')}
+- Annual Budget: $${profile.annualBudget.toLocaleString()}
+- FQHC Designation: ${profile.fqhcDesignation ? 'Yes' : 'No'}
+
+## GRANTS TO SCORE:
+${grantSummaries}
+
+## RETURN FORMAT:
+Return a JSON array with one object per grant:
+[
+  {
+    "grantId": "<grant ID>",
+    "fitScore": <1-10>,
+    "fitExplanation": "<1 sentence summary>"
+  }
+]
+
+SCORING:
+- 8-10: Excellent fit, clearly eligible
+- 5-7: Moderate fit, worth reviewing
+- 1-4: Poor fit, probably not eligible
+
+BE STRICT. Don't give high scores unless there's clear alignment.
+
+Return ONLY the JSON array.`;
+}
+
+interface BatchScoreResult {
+  grantId: string;
+  fitScore: number;
+  fitExplanation: string;
+}
+
+/**
+ * Batch score multiple grants at once (for dashboard)
+ */
+async function batchScoreGrants(
+  grants: Grant[],
+  profile: FQHCProfile
+): Promise<Map<string, { fitScore: number; fitExplanation: string }>> {
+  const results = new Map<string, { fitScore: number; fitExplanation: string }>();
+
+  if (grants.length === 0) {
+    return results;
+  }
 
   try {
+    console.log(`[AI-Match] Batch scoring ${grants.length} grants...`);
+    const startTime = Date.now();
+
     const result = await generateText({
       model: google('gemini-3-flash-preview'),
-      prompt,
+      prompt: buildBatchPrompt(grants, profile),
     });
 
-    const responseText = result.text;
+    console.log(`[AI-Match] Batch scoring completed in ${Date.now() - startTime}ms`);
 
-    if (!responseText) {
-      return null;
+    const responseText = result.text.trim();
+
+    // Parse JSON array from response
+    let jsonStr = responseText;
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.slice(7);
     }
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.slice(3);
+    }
+    if (jsonStr.endsWith('```')) {
+      jsonStr = jsonStr.slice(0, -3);
+    }
+    jsonStr = jsonStr.trim();
 
-    return parseAIResponse(responseText, grant.id, profile.id);
+    const parsed: BatchScoreResult[] = JSON.parse(jsonStr);
+
+    for (const item of parsed) {
+      results.set(item.grantId, {
+        fitScore: Math.max(1, Math.min(10, Math.round(item.fitScore))),
+        fitExplanation: item.fitExplanation,
+      });
+    }
   } catch (error) {
-    console.error('Gemini API call failed:', error);
-    return null;
+    console.error('Batch AI scoring failed:', error);
   }
+
+  return results;
 }
 
 // ============================================================================
-// Rule-Based Matching (Fallback)
+// Public API
 // ============================================================================
 
 /**
- * Calculates days until deadline
- */
-function getDaysUntilDeadline(deadline: Date): number {
-  const deadlineDate = deadline instanceof Date ? deadline : new Date(deadline);
-  const now = new Date();
-  return Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-/**
- * Checks if text contains any of the keywords (case-insensitive)
- */
-function containsKeywords(text: string, keywords: string[]): string[] {
-  const lowerText = text.toLowerCase();
-  return keywords.filter((keyword) => lowerText.includes(keyword.toLowerCase()));
-}
-
-/**
- * Rule-based grant matching when AI API is unavailable
- * Uses structured scoring based on multiple factors
- * Tracks both what matches AND what doesn't match
- */
-export function calculateRuleBasedMatch(
-  grant: Grant,
-  profile: FQHCProfile
-): GrantMatch {
-  let score = 5; // Base score
-  const matchedCriteria: string[] = [];
-  const notMatchingCriteria: string[] = [];
-  const potentialConcerns: string[] = [];
-
-  const grantText = `${grant.title} ${grant.description || ''} ${grant.eligibilityDescription || ''}`.toLowerCase();
-  const agencyUpper = grant.agency.toUpperCase();
-
-  // =========================================================================
-  // Factor 1: Agency relevance (+1 to +2)
-  // =========================================================================
-  const isHRSA = agencyUpper.includes('HRSA');
-  const isHealthAgency = FQHC_PRIORITY_AGENCIES.some((agency) => agencyUpper.includes(agency));
-
-  if (isHRSA) {
-    score += 2;
-    matchedCriteria.push('HRSA is the primary agency for FQHCs');
-  } else if (isHealthAgency) {
-    score += 1;
-    matchedCriteria.push(`${grant.agency} is a health-related federal agency`);
-  } else {
-    notMatchingCriteria.push(`${grant.agency} is not a primary FQHC funding agency`);
-  }
-
-  // =========================================================================
-  // Factor 2: Services alignment (+1 for each match, max +2)
-  // =========================================================================
-  const servicesFound = profile.services.filter((service) =>
-    grantText.includes(service.toLowerCase())
-  );
-  const servicesNotFound = profile.services.filter((service) =>
-    !grantText.includes(service.toLowerCase())
-  );
-
-  if (servicesFound.length > 0) {
-    score += Math.min(servicesFound.length, 2);
-    matchedCriteria.push(`Grant aligns with your services: ${servicesFound.slice(0, 3).join(', ')}`);
-  }
-
-  // Only mention services gap if NO services matched
-  if (servicesFound.length === 0 && servicesNotFound.length > 0) {
-    notMatchingCriteria.push(`Grant does not mention your services (${servicesNotFound.slice(0, 2).join(', ')})`);
-  }
-
-  // =========================================================================
-  // Factor 3: Demographics alignment (+1)
-  // =========================================================================
-  const demographicsFound = profile.patientDemographics.filter((demo) =>
-    grantText.includes(demo.toLowerCase())
-  );
-  const demographicsNotFound = profile.patientDemographics.filter((demo) =>
-    !grantText.includes(demo.toLowerCase())
-  );
-
-  if (demographicsFound.length > 0) {
-    score += 1;
-    matchedCriteria.push(`Grant targets your patient demographics: ${demographicsFound.slice(0, 3).join(', ')}`);
-  }
-
-  // Only mention demographics gap if NO demographics matched
-  if (demographicsFound.length === 0 && demographicsNotFound.length > 0) {
-    notMatchingCriteria.push(`Grant does not specifically target your patient demographics`);
-  }
-
-  // =========================================================================
-  // Factor 4: State/location match (+1)
-  // =========================================================================
-  const locationMatches =
-    grantText.includes(profile.address.state.toLowerCase()) ||
-    grantText.includes(profile.address.city.toLowerCase());
-  const isNational = grantText.includes('national') || grantText.includes('all states') || grantText.includes('nationwide');
-
-  if (locationMatches) {
-    score += 1;
-    matchedCriteria.push(`Grant mentions your location: ${profile.address.city}, ${profile.address.state}`);
-  } else if (isNational) {
-    matchedCriteria.push('Grant is available nationwide');
-  }
-  // Don't mark location as "not matching" since most federal grants are national
-
-  // =========================================================================
-  // Factor 5: FQHC-specific keywords (+1)
-  // =========================================================================
-  const keywordsFound = containsKeywords(grantText, FQHC_RELEVANT_KEYWORDS);
-  const fqhcExplicitlyMentioned =
-    grantText.includes('fqhc') ||
-    grantText.includes('federally qualified') ||
-    grantText.includes('health center');
-
-  if (fqhcExplicitlyMentioned) {
-    score += 1;
-    matchedCriteria.push('Grant specifically targets FQHCs or health centers');
-  } else if (keywordsFound.length >= 3) {
-    score += 1;
-    matchedCriteria.push('Grant contains multiple FQHC-relevant terms');
-  } else if (keywordsFound.length >= 1) {
-    matchedCriteria.push(`Grant mentions relevant topics: ${keywordsFound.slice(0, 2).join(', ')}`);
-  } else if (!isHRSA && !isHealthAgency) {
-    // Only flag FQHC targeting if agency is also not health-related
-    notMatchingCriteria.push('Grant does not specifically mention FQHCs or community health');
-  }
-
-  // =========================================================================
-  // Factor 6: Deadline urgency (-1 if too soon)
-  // =========================================================================
-  const daysUntilDeadline = getDaysUntilDeadline(grant.deadline);
-  if (daysUntilDeadline >= 0 && daysUntilDeadline < URGENT_DEADLINE_DAYS) {
-    score -= 1;
-    potentialConcerns.push(`Deadline is only ${daysUntilDeadline} days away`);
-  } else if (daysUntilDeadline < 0) {
-    score -= 3;
-    potentialConcerns.push('Deadline has passed');
-  }
-
-  // =========================================================================
-  // Factor 7: Funding amount reasonableness
-  // =========================================================================
-  const minFunding = grant.fundingAmount.min;
-  const maxFunding = grant.fundingAmount.max;
-  if (maxFunding > 0 && maxFunding < 10000) {
-    potentialConcerns.push('Small funding amount may not justify application effort');
-  } else if (minFunding > profile.annualBudget * 0.5) {
-    potentialConcerns.push('Minimum award is large relative to your annual budget');
-  }
-
-  // =========================================================================
-  // Factor 8: FQHC designation
-  // =========================================================================
-  if (profile.fqhcDesignation) {
-    matchedCriteria.push('Your FQHC designation qualifies you for health center grants');
-  }
-
-  // =========================================================================
-  // Factor 9: Check for potential conflicts with active grants
-  // =========================================================================
-  const activeGrantsLower = profile.activeGrants.map((g) => g.toLowerCase());
-  const grantTitleLower = grant.title.toLowerCase();
-  const potentialConflict = activeGrantsLower.find(
-    (activeGrant) =>
-      grantTitleLower.includes(activeGrant.slice(0, 15)) ||
-      activeGrant.includes(grantTitleLower.slice(0, 15))
-  );
-  if (potentialConflict) {
-    potentialConcerns.push(`May overlap with your existing grant: ${potentialConflict}`);
-  }
-
-  // =========================================================================
-  // Ensure score stays within 1-10 range
-  // =========================================================================
-  score = Math.max(1, Math.min(10, score));
-
-  // =========================================================================
-  // Generate explanation based on score
-  // =========================================================================
-  let fitExplanation: string;
-  if (score >= 8) {
-    fitExplanation = `Strong match for your FQHC. ${matchedCriteria.slice(0, 2).join('. ')}. This grant aligns well with your organization's mission and capabilities.`;
-  } else if (score >= 5) {
-    fitExplanation = `Moderate match worth reviewing. ${matchedCriteria.length > 0 ? matchedCriteria[0] + '.' : ''} Review eligibility criteria to confirm fit with your specific services and patient population.`;
-  } else {
-    fitExplanation = `Limited alignment with your FQHC profile. ${notMatchingCriteria.length > 0 ? notMatchingCriteria[0] + '.' : ''} Consider whether this grant's focus matches your organization's priorities.`;
-  }
-
-  return {
-    grantId: grant.id,
-    fqhcProfileId: profile.id,
-    fitScore: score,
-    fitExplanation,
-    matchedCriteria,
-    notMatchingCriteria,
-    potentialConcerns,
-    calculatedAt: new Date(),
-  };
-}
-
-// ============================================================================
-// Main Matching Function (Hybrid Approach)
-// ============================================================================
-
-/**
- * Calculates grant match using AI if available, with rule-based fallback
- *
- * Priority:
- * 1. Return cached result if available
- * 2. Try Google Gemini API
- * 3. Fall back to rule-based matching
- *
- * Results are cached to prevent redundant API calls.
+ * Calculate match for a single grant using AI
+ * Checks cache first, calls AI if not cached
  */
 export async function calculateGrantMatch(
   grant: Grant,
   profile: FQHCProfile
 ): Promise<GrantMatch> {
   // Check cache first
-  const cachedMatch = getCachedMatch(grant.id, profile.id);
-  if (cachedMatch) {
-    return cachedMatch;
+  const cached = getCachedMatch(grant.id, profile.id);
+  if (cached) {
+    return cached;
   }
 
-  // Try Gemini API
-  let match: GrantMatch | null = null;
-  match = await callGeminiAPI(grant, profile);
+  // Call AI
+  const match = await analyzeGrantWithAI(grant, profile);
 
-  // Fall back to rule-based if AI unavailable
-  if (!match) {
-    match = calculateRuleBasedMatch(grant, profile);
+  if (match) {
+    setCachedMatch(match);
+    return match;
   }
 
-  // Cache the result
-  setCachedMatch(match);
+  // Fallback if AI fails (should rarely happen)
+  const fallback: GrantMatch = {
+    grantId: grant.id,
+    fqhcProfileId: profile.id,
+    fitScore: 5,
+    fitExplanation: 'Unable to analyze match. Please review manually.',
+    matchedCriteria: [],
+    notMatchingCriteria: [],
+    potentialConcerns: ['Automated analysis unavailable'],
+    calculatedAt: new Date(),
+  };
 
-  return match;
+  return fallback;
 }
 
 /**
- * Calculates matches for multiple grants in parallel
- * Returns matches sorted by fit score (highest first)
+ * Calculate matches for multiple grants efficiently
+ * Uses batch AI call for uncached grants
  */
 export async function calculateBatchMatches(
   grants: Grant[],
   profile: FQHCProfile
 ): Promise<GrantMatch[]> {
-  const matchPromises = grants.map((grant) => calculateGrantMatch(grant, profile));
-  const matches = await Promise.all(matchPromises);
+  const results: GrantMatch[] = [];
+  const uncachedGrants: Grant[] = [];
+
+  // Check cache for each grant
+  for (const grant of grants) {
+    const cached = getCachedMatch(grant.id, profile.id);
+    if (cached) {
+      results.push(cached);
+    } else {
+      uncachedGrants.push(grant);
+    }
+  }
+
+  // Batch score uncached grants
+  if (uncachedGrants.length > 0) {
+    const batchScores = await batchScoreGrants(uncachedGrants, profile);
+
+    // For grants that got batch scores, we create partial matches
+    // Full analysis happens when user clicks on the grant
+    for (const grant of uncachedGrants) {
+      const score = batchScores.get(grant.id);
+
+      const match: GrantMatch = {
+        grantId: grant.id,
+        fqhcProfileId: profile.id,
+        fitScore: score?.fitScore || 5,
+        fitExplanation: score?.fitExplanation || 'Click to view detailed analysis',
+        matchedCriteria: [],
+        notMatchingCriteria: [],
+        potentialConcerns: [],
+        calculatedAt: new Date(),
+      };
+
+      // Cache the batch result (will be replaced with full analysis when user views detail)
+      setCachedMatch(match);
+      results.push(match);
+    }
+  }
 
   // Sort by fit score descending
-  return matches.sort((a, b) => b.fitScore - a.fitScore);
+  return results.sort((a, b) => b.fitScore - a.fitScore);
 }
 
 /**
- * Checks if AI matching is available (Google API key configured)
+ * Check if AI matching is available
  */
 export function isAIMatchingAvailable(): boolean {
   return !!process.env.GOOGLE_API_KEY;
+}
+
+/**
+ * Clear expired cache entries
+ */
+export function clearExpiredMatchCache(): number {
+  const now = Date.now();
+  let clearedCount = 0;
+
+  for (const [key, entry] of matchCache.entries()) {
+    if (now - entry.timestamp > MATCH_CACHE_TTL_MS) {
+      matchCache.delete(key);
+      clearedCount++;
+    }
+  }
+
+  return clearedCount;
 }
