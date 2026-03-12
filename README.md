@@ -9,7 +9,8 @@ A prototype tool that helps Federally Qualified Health Center (FQHC) CFOs discov
 - **Smart Grant Discovery** - Real-time search of Grants.gov API with health-focused filtering (HRSA, HHS, CDC, SAMHSA, NIH)
 - **AI-Powered Matching** - Google Gemini analyzes grant fit against your organization profile with explanations
 - **Match Analysis** - See what matches AND what doesn't match for each grant opportunity
-- **AI Chat Assistant** - Ask questions about specific grants, eligibility, and application requirements
+- **AI Chat Assistant** - Ask questions about specific grants, chat history persists per grant
+- **Discover Page** - Browse all grants with AI scores, filters (agency, score, status), and pagination
 - **Pipeline Tracker** - Visual board to manage grants: Interested → Evaluating → Applying → Submitted → Awarded
 - **Organization Profile** - Configure your FQHC's services, demographics, and active grants for personalized matching
 
@@ -43,12 +44,12 @@ cp .env.example .env.local
 Add your Google AI API key to `.env.local`:
 
 ```
-GOOGLE_API_KEY=your_google_ai_api_key_here
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_ai_api_key_here
 ```
 
 Get your API key from: https://aistudio.google.com/app/apikey
 
-> **Note:** The app works without an API key using rule-based matching. AI features (chat, smart explanations) require the Google API key.
+> **Note:** The Google API key is required for AI-powered matching and chat features.
 
 ### Run Development Server
 
@@ -95,9 +96,10 @@ Open http://localhost:3000
 **Key Design Decisions:**
 
 - **Server Components** - Grants and pipeline data load server-side for fast initial render
-- **Hybrid Matching** - Rule-based pre-filtering (fast, free) + AI scoring (smart explanations)
+- **Pure AI Matching** - Google Gemini analyzes all grants with batch scoring and caching
 - **Dashboard-First UX** - CFOs need passive discovery, not active search
 - **Streaming Chat** - AI responses stream in real-time for better UX
+- **Chat Persistence** - Conversations saved in localStorage, restored when you return
 
 ## Project Structure
 
@@ -120,9 +122,9 @@ src/
 ## How Matching Works
 
 1. **Fetch Grants** - Pull opportunities from Grants.gov API filtered for health agencies
-2. **Rule-Based Scoring** - Check agency relevance, service alignment, demographics, location
-3. **AI Enhancement** - Gemini provides natural language explanations and identifies gaps
-4. **Present Results** - Show what matches, what doesn't, and any concerns
+2. **Batch AI Scoring** - Gemini analyzes all grants against your organization profile
+3. **Caching** - Results cached to avoid repeated API calls (24h TTL)
+4. **Present Results** - Show score, explanation, what matches, and what doesn't
 
 Match scores range from 1-10:
 - **8-10**: Strong match - prioritize this grant
