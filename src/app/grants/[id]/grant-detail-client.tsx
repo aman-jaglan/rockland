@@ -93,67 +93,15 @@ function getAgencyColor(agency: string): string {
 }
 
 /**
- * Generate "not matching" factors based on what's missing
- */
-function getNotMatchingFactors(grant: Grant, profile: FQHCProfile, match: GrantMatch): string[] {
-  const notMatching: string[] = [];
-  const grantText = `${grant.title} ${grant.description || ''} ${grant.eligibilityDescription || ''}`.toLowerCase();
-
-  // Check if any services are NOT mentioned
-  const servicesNotMentioned = profile.services.filter(
-    service => !grantText.includes(service.toLowerCase())
-  );
-  if (servicesNotMentioned.length > 0 && servicesNotMentioned.length === profile.services.length) {
-    notMatching.push(`Grant does not specifically mention your services (${servicesNotMentioned.slice(0, 2).join(', ')}${servicesNotMentioned.length > 2 ? '...' : ''})`);
-  }
-
-  // Check if demographics are NOT mentioned
-  const demographicsNotMentioned = profile.patientDemographics.filter(
-    demo => !grantText.includes(demo.toLowerCase())
-  );
-  if (demographicsNotMentioned.length > 0 && demographicsNotMentioned.length === profile.patientDemographics.length) {
-    notMatching.push(`Grant does not target your patient demographics specifically`);
-  }
-
-  // Check if location is NOT mentioned
-  const locationMentioned = grantText.includes(profile.address.state.toLowerCase()) ||
-    grantText.includes(profile.address.city.toLowerCase());
-  if (!locationMentioned && !grantText.includes('national') && !grantText.includes('all states')) {
-    notMatching.push(`Grant may have geographic restrictions not matching ${profile.address.state}`);
-  }
-
-  // Check agency relevance
-  const fqhcAgencies = ['HRSA', 'HHS', 'CDC', 'SAMHSA', 'NIH', 'CMS'];
-  const agencyUpper = grant.agency.toUpperCase();
-  const isHealthAgency = fqhcAgencies.some(a => agencyUpper.includes(a));
-  if (!isHealthAgency) {
-    notMatching.push(`${grant.agency} is not a primary health-focused agency for FQHCs`);
-  }
-
-  // Check if FQHC/health center is NOT mentioned
-  const fqhcMentioned = grantText.includes('fqhc') ||
-    grantText.includes('health center') ||
-    grantText.includes('community health') ||
-    grantText.includes('federally qualified');
-  if (!fqhcMentioned) {
-    notMatching.push(`Grant does not specifically target FQHCs or health centers`);
-  }
-
-  // Check funding size appropriateness
-  if (grant.fundingAmount.max > 0 && grant.fundingAmount.max < 10000) {
-    notMatching.push(`Small funding amount ($${grant.fundingAmount.max.toLocaleString()}) may not justify application effort`);
-  }
-
-  return notMatching.slice(0, 4); // Limit to 4 items
-}
-
-/**
  * Match Analysis Card Component
+ * Uses the notMatchingCriteria from the match analysis
  */
-function MatchAnalysisCard({ match, grant, profile }: { match: GrantMatch; grant: Grant; profile: FQHCProfile }) {
+function MatchAnalysisCard({ match }: { match: GrantMatch }) {
   const scoreColor = getFitScoreColor(match.fitScore);
   const scoreLabel = getFitScoreLabel(match.fitScore);
-  const notMatching = getNotMatchingFactors(grant, profile, match);
+
+  // Get not matching criteria from the match (properly calculated by matching algorithm)
+  const notMatching = match.notMatchingCriteria || [];
 
   return (
     <Card>
@@ -198,13 +146,13 @@ function MatchAnalysisCard({ match, grant, profile }: { match: GrantMatch; grant
                     key={index}
                     className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 pl-2"
                   >
-                    <span className="text-green-500 mt-1">+</span>
+                    <span className="text-green-500 mt-0.5 font-bold">+</span>
                     <span>{criterion}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 pl-2">
+              <p className="text-sm text-gray-500 dark:text-gray-400 pl-2 italic">
                 No specific matching factors identified
               </p>
             )}
@@ -229,13 +177,13 @@ function MatchAnalysisCard({ match, grant, profile }: { match: GrantMatch; grant
                     key={index}
                     className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 pl-2"
                   >
-                    <span className="text-red-500 mt-1">-</span>
+                    <span className="text-red-500 mt-0.5 font-bold">-</span>
                     <span>{item}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 pl-2">
+              <p className="text-sm text-gray-500 dark:text-gray-400 pl-2 italic">
                 No significant gaps identified
               </p>
             )}
@@ -261,7 +209,7 @@ function MatchAnalysisCard({ match, grant, profile }: { match: GrantMatch; grant
                   key={index}
                   className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 pl-2"
                 >
-                  <span className="text-amber-500 mt-1">!</span>
+                  <span className="text-amber-500 mt-0.5 font-bold">!</span>
                   <span>{concern}</span>
                 </div>
               ))}
@@ -430,7 +378,7 @@ export function GrantDetailClient({
             </Card>
 
             {/* Match analysis */}
-            <MatchAnalysisCard match={match} grant={grant} profile={profile} />
+            <MatchAnalysisCard match={match} />
 
             {/* Description section */}
             <Card>

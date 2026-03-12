@@ -326,6 +326,13 @@ export interface GrantMatch {
   matchedCriteria: string[];
 
   /**
+   * Criteria that did NOT match - gaps between grant requirements and profile
+   * Examples: "Grant does not mention your behavioral health services"
+   * Helps CFO understand what's missing
+   */
+  notMatchingCriteria: string[];
+
+  /**
    * Potential issues or conflicts to consider
    * Examples: "May conflict with HRSA 330 allocation", "Deadline is only 14 days away"
    * Helps CFO avoid surprises

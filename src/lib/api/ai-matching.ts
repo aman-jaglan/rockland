@@ -173,6 +173,7 @@ Provide your analysis in the following JSON format only:
   "fitScore": <number 1-10>,
   "fitExplanation": "<2-3 sentences explaining why this score>",
   "matchedCriteria": ["<list of matching factors>"],
+  "notMatchingCriteria": ["<list of gaps or aspects that don't align>"],
   "potentialConcerns": ["<any concerns or conflicts>"]
 }
 
@@ -180,6 +181,12 @@ Important scoring guidelines:
 - 8-10: Strong fit - FQHC clearly eligible, services/demographics align, agency is relevant
 - 5-7: Moderate fit - Some alignment, may need to verify specific eligibility requirements
 - 1-4: Poor fit - Limited alignment, likely ineligible, or significant conflicts
+
+For notMatchingCriteria, identify specific gaps like:
+- Services the FQHC offers that aren't mentioned in the grant
+- Demographics served that aren't targeted
+- Geographic mismatches
+- Only include REAL gaps, not every possible thing
 
 Respond with only the JSON object, no additional text.`;
 }
@@ -227,6 +234,7 @@ function parseAIResponse(
       fitScore,
       fitExplanation: parsed.fitExplanation,
       matchedCriteria: parsed.matchedCriteria,
+      notMatchingCriteria: parsed.notMatchingCriteria || [],
       potentialConcerns: parsed.potentialConcerns,
       calculatedAt: new Date(),
     };
@@ -298,6 +306,7 @@ function containsKeywords(text: string, keywords: string[]): string[] {
 /**
  * Rule-based grant matching when AI API is unavailable
  * Uses structured scoring based on multiple factors
+ * Tracks both what matches AND what doesn't match
  */
 export function calculateRuleBasedMatch(
   grant: Grant,
@@ -305,64 +314,121 @@ export function calculateRuleBasedMatch(
 ): GrantMatch {
   let score = 5; // Base score
   const matchedCriteria: string[] = [];
+  const notMatchingCriteria: string[] = [];
   const potentialConcerns: string[] = [];
 
-  // Factor 1: Agency relevance (+1 to +2)
+  const grantText = `${grant.title} ${grant.description || ''} ${grant.eligibilityDescription || ''}`.toLowerCase();
   const agencyUpper = grant.agency.toUpperCase();
-  if (agencyUpper.includes('HRSA')) {
+
+  // =========================================================================
+  // Factor 1: Agency relevance (+1 to +2)
+  // =========================================================================
+  const isHRSA = agencyUpper.includes('HRSA');
+  const isHealthAgency = FQHC_PRIORITY_AGENCIES.some((agency) => agencyUpper.includes(agency));
+
+  if (isHRSA) {
     score += 2;
     matchedCriteria.push('HRSA is the primary agency for FQHCs');
-  } else if (FQHC_PRIORITY_AGENCIES.some((agency) => agencyUpper.includes(agency))) {
+  } else if (isHealthAgency) {
     score += 1;
     matchedCriteria.push(`${grant.agency} is a health-related federal agency`);
+  } else {
+    notMatchingCriteria.push(`${grant.agency} is not a primary FQHC funding agency`);
   }
 
+  // =========================================================================
   // Factor 2: Services alignment (+1 for each match, max +2)
-  const grantTextForServices = `${grant.title} ${grant.description} ${grant.eligibilityDescription}`.toLowerCase();
+  // =========================================================================
   const servicesFound = profile.services.filter((service) =>
-    grantTextForServices.includes(service.toLowerCase())
+    grantText.includes(service.toLowerCase())
   );
+  const servicesNotFound = profile.services.filter((service) =>
+    !grantText.includes(service.toLowerCase())
+  );
+
   if (servicesFound.length > 0) {
     score += Math.min(servicesFound.length, 2);
     matchedCriteria.push(`Grant aligns with your services: ${servicesFound.slice(0, 3).join(', ')}`);
   }
 
+  // Only mention services gap if NO services matched
+  if (servicesFound.length === 0 && servicesNotFound.length > 0) {
+    notMatchingCriteria.push(`Grant does not mention your services (${servicesNotFound.slice(0, 2).join(', ')})`);
+  }
+
+  // =========================================================================
   // Factor 3: Demographics alignment (+1)
+  // =========================================================================
   const demographicsFound = profile.patientDemographics.filter((demo) =>
-    grantTextForServices.includes(demo.toLowerCase())
+    grantText.includes(demo.toLowerCase())
   );
+  const demographicsNotFound = profile.patientDemographics.filter((demo) =>
+    !grantText.includes(demo.toLowerCase())
+  );
+
   if (demographicsFound.length > 0) {
     score += 1;
     matchedCriteria.push(`Grant targets your patient demographics: ${demographicsFound.slice(0, 3).join(', ')}`);
   }
 
+  // Only mention demographics gap if NO demographics matched
+  if (demographicsFound.length === 0 && demographicsNotFound.length > 0) {
+    notMatchingCriteria.push(`Grant does not specifically target your patient demographics`);
+  }
+
+  // =========================================================================
   // Factor 4: State/location match (+1)
-  if (
-    grantTextForServices.includes(profile.address.state.toLowerCase()) ||
-    grantTextForServices.includes(profile.address.city.toLowerCase())
-  ) {
+  // =========================================================================
+  const locationMatches =
+    grantText.includes(profile.address.state.toLowerCase()) ||
+    grantText.includes(profile.address.city.toLowerCase());
+  const isNational = grantText.includes('national') || grantText.includes('all states') || grantText.includes('nationwide');
+
+  if (locationMatches) {
     score += 1;
     matchedCriteria.push(`Grant mentions your location: ${profile.address.city}, ${profile.address.state}`);
+  } else if (isNational) {
+    matchedCriteria.push('Grant is available nationwide');
   }
+  // Don't mark location as "not matching" since most federal grants are national
 
+  // =========================================================================
   // Factor 5: FQHC-specific keywords (+1)
-  const keywordsFound = containsKeywords(grantTextForServices, FQHC_RELEVANT_KEYWORDS);
-  if (keywordsFound.length >= 2) {
+  // =========================================================================
+  const keywordsFound = containsKeywords(grantText, FQHC_RELEVANT_KEYWORDS);
+  const fqhcExplicitlyMentioned =
+    grantText.includes('fqhc') ||
+    grantText.includes('federally qualified') ||
+    grantText.includes('health center');
+
+  if (fqhcExplicitlyMentioned) {
     score += 1;
-    matchedCriteria.push('Grant contains FQHC-relevant terms');
+    matchedCriteria.push('Grant specifically targets FQHCs or health centers');
+  } else if (keywordsFound.length >= 3) {
+    score += 1;
+    matchedCriteria.push('Grant contains multiple FQHC-relevant terms');
+  } else if (keywordsFound.length >= 1) {
+    matchedCriteria.push(`Grant mentions relevant topics: ${keywordsFound.slice(0, 2).join(', ')}`);
+  } else if (!isHRSA && !isHealthAgency) {
+    // Only flag FQHC targeting if agency is also not health-related
+    notMatchingCriteria.push('Grant does not specifically mention FQHCs or community health');
   }
 
+  // =========================================================================
   // Factor 6: Deadline urgency (-1 if too soon)
+  // =========================================================================
   const daysUntilDeadline = getDaysUntilDeadline(grant.deadline);
   if (daysUntilDeadline >= 0 && daysUntilDeadline < URGENT_DEADLINE_DAYS) {
     score -= 1;
-    potentialConcerns.push(`Deadline is only ${daysUntilDeadline} days away - may be difficult to prepare application`);
+    potentialConcerns.push(`Deadline is only ${daysUntilDeadline} days away`);
   } else if (daysUntilDeadline < 0) {
     score -= 3;
     potentialConcerns.push('Deadline has passed');
   }
 
+  // =========================================================================
   // Factor 7: Funding amount reasonableness
+  // =========================================================================
   const minFunding = grant.fundingAmount.min;
   const maxFunding = grant.fundingAmount.max;
   if (maxFunding > 0 && maxFunding < 10000) {
@@ -371,34 +437,42 @@ export function calculateRuleBasedMatch(
     potentialConcerns.push('Minimum award is large relative to your annual budget');
   }
 
+  // =========================================================================
   // Factor 8: FQHC designation
+  // =========================================================================
   if (profile.fqhcDesignation) {
     matchedCriteria.push('Your FQHC designation qualifies you for health center grants');
   }
 
+  // =========================================================================
   // Factor 9: Check for potential conflicts with active grants
+  // =========================================================================
   const activeGrantsLower = profile.activeGrants.map((g) => g.toLowerCase());
   const grantTitleLower = grant.title.toLowerCase();
   const potentialConflict = activeGrantsLower.find(
     (activeGrant) =>
-      grantTitleLower.includes(activeGrant) ||
-      activeGrant.includes(grantTitleLower.substring(0, 20))
+      grantTitleLower.includes(activeGrant.slice(0, 15)) ||
+      activeGrant.includes(grantTitleLower.slice(0, 15))
   );
   if (potentialConflict) {
     potentialConcerns.push(`May overlap with your existing grant: ${potentialConflict}`);
   }
 
+  // =========================================================================
   // Ensure score stays within 1-10 range
+  // =========================================================================
   score = Math.max(1, Math.min(10, score));
 
+  // =========================================================================
   // Generate explanation based on score
+  // =========================================================================
   let fitExplanation: string;
   if (score >= 8) {
-    fitExplanation = `Strong match for your FQHC. ${matchedCriteria.slice(0, 2).join(' ')}. This grant aligns well with your organization's mission and capabilities.`;
+    fitExplanation = `Strong match for your FQHC. ${matchedCriteria.slice(0, 2).join('. ')}. This grant aligns well with your organization's mission and capabilities.`;
   } else if (score >= 5) {
     fitExplanation = `Moderate match worth reviewing. ${matchedCriteria.length > 0 ? matchedCriteria[0] + '.' : ''} Review eligibility criteria to confirm fit with your specific services and patient population.`;
   } else {
-    fitExplanation = `Limited alignment with your FQHC profile. ${potentialConcerns.length > 0 ? potentialConcerns[0] + '.' : ''} Consider whether this grant's focus matches your organization's priorities.`;
+    fitExplanation = `Limited alignment with your FQHC profile. ${notMatchingCriteria.length > 0 ? notMatchingCriteria[0] + '.' : ''} Consider whether this grant's focus matches your organization's priorities.`;
   }
 
   return {
@@ -407,6 +481,7 @@ export function calculateRuleBasedMatch(
     fitScore: score,
     fitExplanation,
     matchedCriteria,
+    notMatchingCriteria,
     potentialConcerns,
     calculatedAt: new Date(),
   };

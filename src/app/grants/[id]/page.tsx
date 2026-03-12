@@ -109,6 +109,7 @@ async function computeMatchAnalysis(
       fitScore: 5,
       fitExplanation: "Unable to compute match analysis. Please review manually.",
       matchedCriteria: [],
+      notMatchingCriteria: [],
       potentialConcerns: ["Match analysis unavailable"],
       calculatedAt: new Date(),
     };
