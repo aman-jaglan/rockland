@@ -429,7 +429,7 @@ export async function getGrantDetails(opportunityId: string): Promise<Grant | nu
     const postedDateStr = synopsis?.postingDate || forecast?.postingDate || '';
 
     // Parse funding amount - synopsis has numbers, forecast has string
-    let fundingMin = synopsis?.awardFloor || 0;
+    const fundingMin = synopsis?.awardFloor || 0;
     let fundingMax = synopsis?.awardCeiling || 0;
     if (forecast?.estimatedFunding && !fundingMax) {
       const estimatedFunding = parseInt(forecast.estimatedFunding, 10);

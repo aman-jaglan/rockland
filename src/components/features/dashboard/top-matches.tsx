@@ -94,7 +94,7 @@ function EmptyState() {
         No matching grants found
       </h3>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
-        We couldn't find any grants matching your organization's profile. Check
+        We could not find any grants matching your profile. Check
         back soon for new opportunities.
       </p>
     </div>

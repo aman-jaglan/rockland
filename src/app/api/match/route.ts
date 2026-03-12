@@ -22,7 +22,7 @@ import {
 
 // In-memory profile storage (shared with /api/profile)
 // In production, this would be a database query
-let serverProfile: FQHCProfile | null = null;
+const serverProfile: FQHCProfile | null = null;
 
 /**
  * Helper to get the current FQHC profile

@@ -91,7 +91,7 @@ const mockGrants: Grant[] = [
   },
 ];
 
-let mockPipelineItems: PipelineItem[] = [
+const mockPipelineItems: PipelineItem[] = [
   {
     id: "pipeline-1",
     grantId: "hrsa-24-001",
